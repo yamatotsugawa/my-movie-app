@@ -4,26 +4,59 @@
 
 import { useState } from 'react';
 import React from 'react';
-import Link from 'next/link'; // Linkコンポーネントは詳細ページへのリンクのために残しておく
+// import Link from 'next/link'; // ★修正: Linkコンポーネントはもう使わないので削除
 
 // TMDB APIのベースURL
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 // APIキーは環境変数から取得
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
 
+// ★追加: 映画データの型定義
+interface MovieData {
+  id: number;
+  title: string;
+  release_date?: string;
+  overview?: string;
+  poster_path?: string;
+  // 以下はAPIレスポンスのプロパティ
+  genres?: { id: number; name: string }[];
+  runtime?: number;
+  vote_average?: number;
+  vote_count?: number;
+  'watch/providers'?: {
+    results: {
+      JP?: {
+        link?: string;
+        flatrate?: Provider[];
+        buy?: Provider[];
+        rent?: Provider[];
+      };
+    };
+  };
+}
+
+// ★追加: ストリーミングサービスプロバイダーの型定義
+interface Provider {
+  provider_id: number;
+  provider_name: string;
+  logo_path: string;
+  display_priority: number;
+}
+
+// ★追加: アプリ内で使用する映画結果の型定義
+interface AppMovieResult {
+  id: number;
+  title: string;
+  release_date?: string;
+  overview?: string;
+  poster_path?: string;
+  streamingServices?: { name: string; logo: string; link?: string }[];
+  justWatchLink?: string;
+}
+
 export default function Home() {
   const [movieTitle, setMovieTitle] = useState<string>('');
-  const [results, setResults] = useState<
-    {
-      id: number;
-      title: string;
-      release_date?: string;
-      overview?: string;
-      poster_path?: string;
-      streamingServices?: { name: string; logo: string; link?: string }[]; // ★変更: linkプロパティを追加
-      justWatchLink?: string; // JustWatchへのリンクを保持
-    }[]
-  >([]);
+  const [results, setResults] = useState<AppMovieResult[]>([]); // ★修正: AppMovieResult[] 型を使用
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,30 +64,23 @@ export default function Home() {
   const getServiceSpecificLink = (providerName: string, movieTitle: string, justWatchMovieLink?: string): string => {
     switch (providerName) {
       case 'Amazon Prime Video':
-        // Amazon Prime Videoの検索結果ページへ（映画タイトルで検索）
-        // これは直接映画ページに飛ぶわけではなく、検索結果を表示します
         return `https://www.amazon.co.jp/s?k=${encodeURIComponent(movieTitle)}&i=instant-video`;
       case 'Netflix':
-        // Netflixのトップページへ
         return 'https://www.netflix.com/jp/';
       case 'U-NEXT':
-        // U-NEXTのトップページへ
         return 'https://video.unext.jp/';
       case 'Hulu':
-        // Huluのトップページへ
         return 'https://www.hulu.jp/';
-      case 'Disney Plus': // ディズニー+
+      case 'Disney Plus':
         return 'https://www.disneyplus.com/ja-jp';
-      case 'Apple TV': // Apple TV (iTunes)
-        return `https://tv.apple.com/jp/search/${encodeURIComponent(movieTitle)}`; // Apple TVは検索リンクがある場合が多い
-      case 'Google Play Movies': // Google Play ムービー
+      case 'Apple TV':
+        return `https://tv.apple.com/jp/search/${encodeURIComponent(movieTitle)}`;
+      case 'Google Play Movies':
         return `https://play.google.com/store/search?q=${encodeURIComponent(movieTitle)}&c=movies`;
-      case 'YouTube': // YouTube
-        return `https://www.youtube.com/results?search_query=${encodeURIComponent(movieTitle)}+full+movie`; // YouTubeは検索結果
-      // 他の主要なサービスもここに追加できます
+      case 'YouTube':
+        return `https://www.youtube.com/results?search_query=${encodeURIComponent(movieTitle)}+full+movie`;
       default:
-        // 上記以外のサービスや、特定のリンクがない場合のフォールバックとしてJustWatchのリンクを使用
-        return justWatchMovieLink || '#'; // JustWatchリンクもなければ'#'（クリック不可）
+        return justWatchMovieLink || '#';
     }
   };
 
@@ -79,50 +105,45 @@ export default function Home() {
     }
 
     try {
-      // 1. 映画を検索するAPIエンドポイントを構築
       const searchUrl = `${TMDB_BASE_URL}/search/movie?query=${encodeURIComponent(movieTitle)}&api_key=${TMDB_API_KEY}&language=ja-JP`;
       const searchResponse = await fetch(searchUrl);
 
       if (!searchResponse.ok) {
         throw new Error(`映画検索API呼び出しに失敗しました: ${searchResponse.statusText} (ステータスコード: ${searchResponse.status})`);
       }
-      const searchData = await searchResponse.json();
+      const searchData: { results: MovieData[] } = await searchResponse.json(); // ★修正: 型を明示
 
       if (searchData.results && searchData.results.length > 0) {
-        // 2. 各映画の視聴サービス情報を並行して取得
-        const moviesWithStreamingPromises = searchData.results.map(async (movie: any) => {
+        const moviesWithStreamingPromises = searchData.results.map(async (movie: MovieData) => { // ★修正: movieの型をMovieDataに
           try {
-            // watch/providers エンドポイントを呼び出し
             const providersUrl = `${TMDB_BASE_URL}/movie/${movie.id}/watch/providers?api_key=${TMDB_API_KEY}`;
             const providersResponse = await fetch(providersUrl);
 
             let justWatchLink: string | undefined = undefined;
-            let services: { name: string; logo: string; link?: string }[] = []; // ★変更: linkプロパティを持つ型
+            let services: { name: string; logo: string; link?: string }[] = [];
 
             if (providersResponse.ok) {
-              const providersData = await providersResponse.json();
-              const jpProviders = providersData.results?.JP; // 日本のプロバイダー情報
+              const providersData: { results: { JP?: { link?: string; flatrate?: Provider[]; buy?: Provider[]; rent?: Provider[] } } } = await providersResponse.json(); // ★修正: 型を明示
+              const jpProviders = providersData.results?.JP;
 
-              justWatchLink = jpProviders?.link; // JustWatchへのリンクを取得
+              justWatchLink = jpProviders?.link;
 
-              const addServices = (providerList: any[]) => {
+              const addServices = (providerList: Provider[] | undefined) => { // ★修正: providerListの型を明示
                 if (providerList) {
-                  providerList.forEach((p: any) => {
+                  providerList.forEach((p: Provider) => { // ★修正: pの型をProviderに
                     services.push({
                       name: p.provider_name,
                       logo: p.logo_path,
-                      // ★変更: サービスごとのリンクを生成
                       link: getServiceSpecificLink(p.provider_name, movie.title, justWatchLink),
                     });
                   });
                 }
               };
 
-              addServices(jpProviders?.flatrate); // サブスクリプションサービス
-              addServices(jpProviders?.buy);      // 購入サービス
-              addServices(jpProviders?.rent);     // レンタルサービス
+              addServices(jpProviders?.flatrate);
+              addServices(jpProviders?.buy);
+              addServices(jpProviders?.rent);
 
-              // 重複を削除 (同じサービスがflatrateとbuyの両方にある場合など)
               services = Array.from(new Map(services.map(item => [item['name'], item])).values());
 
             } else {
@@ -152,7 +173,6 @@ export default function Home() {
           }
         });
 
-        // 全てのプロミスが解決するのを待つ
         const finalResults = await Promise.all(moviesWithStreamingPromises);
         setResults(finalResults);
 
@@ -192,9 +212,8 @@ export default function Home() {
           <>
             <h2 style={styles.resultsTitle}>検索結果</h2>
             <ul style={styles.resultsList}>
-              {results.map((movie) => (
+              {results.map((movie: AppMovieResult) => ( // ★修正: movieの型をAppMovieResultに
                 <li key={movie.id} style={styles.resultItem}>
-                  {/* ★変更: 映画全体を囲むLinkを削除。映画ポスターやタイトルはクリック不可に */}
                   <div style={styles.movieContent}>
                     {movie.poster_path && (
                       <img
@@ -212,18 +231,17 @@ export default function Home() {
                           {movie.overview.length > 150 ? movie.overview.substring(0, 150) + '...' : movie.overview}
                         </p>
                       )}
-                      {/* ★変更: オンデマンドロゴを<a>タグで囲む */}
                       <div style={styles.streamingProvidersContainer}>
                         <p style={styles.streamingProvidersLabel}>視聴可能サービス:</p>
                         {movie.streamingServices && movie.streamingServices.length > 0 ? (
                           <div style={styles.providerLogos}>
                             {movie.streamingServices.map((service, idx) => (
                               <span key={idx} style={styles.providerItem}>
-                                {service.link && service.link !== '#' ? ( // 有効なリンクがある場合のみ<a>タグで囲む
+                                {service.link && service.link !== '#' ? (
                                   <a
-                                    href={service.link} // ★変更: サービスごとのリンクを使用
-                                    target="_blank" // 新しいタブで開く
-                                    rel="noopener noreferrer" // セキュリティ対策
+                                    href={service.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
                                     style={styles.providerLink}
                                   >
                                     {service.logo && (
@@ -236,7 +254,6 @@ export default function Home() {
                                     )}
                                   </a>
                                 ) : (
-                                  // リンクがない場合はロゴのみ表示（クリック不可）
                                   service.logo && (
                                     <img
                                       src={`https://image.tmdb.org/t/p/w45${service.logo}`}
@@ -338,12 +355,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: '15px',
     marginBottom: '10px',
   },
-  // movieLink スタイルはもう使わないので削除またはコメントアウト
-  // movieLink: {
-  //   textDecoration: 'none',
-  //   color: 'inherit',
-  //   display: 'block',
-  // },
   movieContent: {
     display: 'flex',
     alignItems: 'flex-start',
@@ -391,14 +402,10 @@ const styles: { [key: string]: React.CSSProperties } = {
     display: 'flex',
     alignItems: 'center',
   },
-  providerLink: { // ロゴを囲む<a>タグのスタイル
-    display: 'flex', // ロゴが中央に配置されるように
+  providerLink: {
+    display: 'flex',
     cursor: 'pointer',
-    textDecoration: 'none', // 下線を消す
-    // border: '1px solid transparent', // ホバー時の境界線用
-    // '&:hover': {
-    //   borderColor: '#0070f3', // ホバー時に青い境界線
-    // },
+    textDecoration: 'none',
   },
   providerLogo: {
     width: '30px',
@@ -417,9 +424,4 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: '#999',
     fontStyle: 'italic',
   },
-  // streamingServices はもう使わないので削除またはコメントアウト
-  // streamingServices: {
-  //   fontSize: '14px',
-  //   color: '#666',
-  // },
 };
