@@ -275,7 +275,7 @@ export default function Home() {
         body: JSON.stringify(payload)
       });
 
-      const result = response.json();
+      const result = await response.json(); // ここでawaitを追加
 
       if (result.candidates && result.candidates.length > 0 &&
           result.candidates[0].content && result.candidates[0].content.parts &&
@@ -367,4 +367,543 @@ export default function Home() {
               services = Array.from(new Map(services.map(item => [item['name'], item])).values());
 
             } else {
-              console.warn(`視聴プロバイダー情報の取得に失敗しました (映画ID:
+              // ★修正: console.warnの文字列を閉じる
+              console.warn(`視聴プロバイダー情報の取得に失敗しました (映画ID: ${movie.id}): ${providersResponse.statusText}`);
+            }
+
+            return {
+              id: movie.id,
+              title: movie.title,
+              release_date: movie.release_date,
+              overview: movie.overview,
+              poster_path: movie.poster_path,
+              streamingServices: services,
+              justWatchLink: justWatchLink,
+            };
+          } catch (providerError: unknown) {
+            let errorMessage = '不明なエラー';
+            if (providerError instanceof Error) {
+              errorMessage = providerError.message;
+            } else if (typeof providerError === 'string') {
+              errorMessage = providerError;
+            }
+            console.error(`視聴プロバイダー情報の取得中にエラーが発生しました (映画ID: ${movie.id}): ${errorMessage}`);
+            return {
+              id: movie.id,
+              title: movie.title,
+              release_date: movie.release_date,
+              overview: movie.overview,
+              poster_path: movie.poster_path,
+              streamingServices: [],
+              justWatchLink: undefined,
+            };
+          }
+        });
+
+        const finalResults = await Promise.all(moviesWithStreamingPromises);
+        setResults(finalResults);
+
+      } else {
+        setError('一致する映画が見つかりませんでした。');
+        fetchMovieSuggestions(movieTitle); // 提案をフェッチ
+      }
+
+    } catch (err: unknown) {
+      let errorMessage = '不明なエラー';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
+      console.error('映画検索エラー:', errorMessage);
+      setError(`映画の検索中にエラーが発生しました: ${errorMessage}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 提案されたタイトルをクリックしたときのハンドラ
+  const handleSuggestedTitleClick = (suggestedTitle: string) => {
+    setMovieTitle(suggestedTitle); // 検索ボックスに提案されたタイトルを設定
+    // フォームをプログラムで送信して新しい検索を開始
+    const form = document.querySelector('form');
+    if (form) {
+      form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    }
+  };
+
+  // チャットメッセージの送信ハンドラ
+  const handleSendMessage = async (movieId: number) => {
+    if (!db || !userId) {
+      setError('チャット機能が利用できません。');
+      return;
+    }
+    const message = chatInputs[movieId]?.trim();
+    if (!message) return;
+
+    try {
+      // Canvas環境から提供される__app_idをここで直接使用
+      const currentAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+      const chatCollectionRef = collection(db, `artifacts/${currentAppId}/public/data/movie_chats/${movieId}/messages`);
+      await addDoc(chatCollectionRef, {
+        userId: userId,
+        message: message,
+        timestamp: serverTimestamp(), // Firestoreのサーバータイムスタンプを使用
+      });
+      setChatInputs(prev => ({ ...prev, [movieId]: '' })); // 入力フィールドをクリア
+    } catch (e) {
+      console.error("Error sending message:", e);
+      setError("メッセージの送信に失敗しました。");
+    }
+  };
+
+  return (
+    <div style={styles.container}>
+      <h1 style={styles.title}>どのオンデマンドで観れる？</h1>
+      <form onSubmit={handleSearch} style={styles.form}>
+        <input
+          type="text"
+          value={movieTitle}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMovieTitle(e.target.value)}
+          placeholder="映画名を入力してください"
+          style={styles.input}
+          disabled={loading}
+        />
+        <button type="submit" style={styles.button} disabled={loading}>
+          {loading ? '検索中...' : '検索'}
+        </button>
+      </form>
+
+      {error && <p style={styles.errorText}>{error}</p>}
+
+      {/* アクセス数を表示 */}
+      <p style={styles.accessCount}>累計アクセス数: {accessCount}</p>
+      {userId && <p style={styles.userIdDisplay}>あなたのID: {userId}</p>}
+
+      {/* 提案された映画タイトルを表示 */}
+      {!loading && !error && results.length === 0 && suggestedMovieTitles.length > 0 && (
+        <div style={styles.suggestionsContainer}>
+          <p style={styles.suggestionsLabel}>もしかして？</p>
+          <ul style={styles.suggestionsList}>
+            {suggestedMovieTitles.map((suggestion, index) => (
+              <li key={index} style={styles.suggestionItem}>
+                <button
+                  type="button"
+                  onClick={() => handleSuggestedTitleClick(suggestion)}
+                  style={styles.suggestionButton}
+                >
+                  {suggestion}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {loadingSuggestions && results.length === 0 && !error && (
+        <p style={styles.loadingSuggestions}>提案を生成中...</p>
+      )}
+
+      <div style={styles.resultsContainer}>
+        {results.length > 0 ? (
+          <>
+            <h2 style={styles.resultsTitle}>検索結果</h2>
+            <ul style={styles.resultsList}>
+              {results.map((movie: AppMovieResult) => (
+                <li key={movie.id} style={styles.resultItem}>
+                  <div style={styles.movieContent}>
+                    {movie.poster_path && (
+                      <img
+                        src={`https://image.tmdb.org/t/p/w92${movie.poster_path}`}
+                        alt={movie.title}
+                        style={styles.poster}
+                      />
+                    )}
+                    <div style={styles.movieDetails}>
+                      <p style={styles.movieTitle}>
+                        {movie.title} ({movie.release_date ? movie.release_date.substring(0, 4) : '不明'})
+                      </p>
+                      {movie.overview && (
+                        <p style={styles.movieOverview}>
+                          {movie.overview.length > 150 ? movie.overview.substring(0, 150) + '...' : movie.overview}
+                        </p>
+                      )}
+                      <div style={styles.streamingProvidersContainer}>
+                        <p style={styles.streamingProvidersLabel}>視聴可能サービス:</p>
+                        {movie.streamingServices && movie.streamingServices.length > 0 ? (
+                          <div style={styles.providerLogos}>
+                            {movie.streamingServices.map((service, idx) => (
+                              <span key={idx} style={styles.providerItem}>
+                                {service.link && service.link !== '#' ? (
+                                  <a
+                                    href={service.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer nofollow"
+                                    style={styles.providerLink}
+                                  >
+                                    {service.logo && (
+                                      <img
+                                        src={`https://image.tmdb.org/t/p/w45${service.logo}`}
+                                        alt={service.name}
+                                        title={service.name}
+                                        style={styles.providerLogo}
+                                      />
+                                    )}
+                                    {/* トラッキングピクセルをレンダリング */}
+                                    {service.trackingPixel && (
+                                      <img
+                                        src={service.trackingPixel}
+                                        alt=""
+                                        style={{ width: '1px', height: '1px', border: '0', position: 'absolute', left: '-9999px' }}
+                                      />
+                                    )}
+                                  </a>
+                                ) : (
+                                  service.logo && (
+                                    <img
+                                      src={`https://image.tmdb.org/t/p/w45${service.logo}`}
+                                      alt={service.name}
+                                      title={service.name}
+                                      style={styles.providerLogo}
+                                    />
+                                  )
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p style={styles.noStreamingInfoSmall}>情報なし</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {/* 各映画のチャットセクション */}
+                  <div style={styles.chatSection}>
+                    <h3 style={styles.chatTitle}>この映画についてチャット</h3>
+                    <div style={styles.chatMessagesContainer}>
+                      {chatMessages[movie.id] && chatMessages[movie.id].length > 0 ? (
+                        chatMessages[movie.id].map((msg, msgIdx) => (
+                          <div key={msg.id} style={styles.chatMessage}>
+                            <span style={styles.chatUserId}>{msg.userId.substring(0, 8)}...:</span>
+                            <span style={styles.chatMessageText}>{msg.message}</span>
+                            <span style={styles.chatTimestamp}>
+                              {new Date(msg.timestamp).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <p style={styles.noMessages}>まだメッセージはありません。</p>
+                      )}
+                    </div>
+                    <div style={styles.chatInputContainer}>
+                      <input
+                        type="text"
+                        value={chatInputs[movie.id] || ''}
+                        onChange={(e) => setChatInputs(prev => ({ ...prev, [movie.id]: e.target.value }))}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSendMessage(movie.id);
+                          }
+                        }}
+                        placeholder="メッセージを入力..."
+                        style={styles.chatInput}
+                        disabled={!userId}
+                      />
+                      <button
+                        onClick={() => handleSendMessage(movie.id)}
+                        style={styles.chatSendButton}
+                        disabled={!userId || !chatInputs[movie.id]?.trim()}
+                      >
+                        送信
+                      </button>
+                    </div>
+                    {!userId && <p style={styles.chatAuthWarning}>チャットを利用するには認証が必要です。</p>}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          !loading && !error && suggestedMovieTitles.length === 0 && <p style={styles.noResults}>映画名を入力して検索してください。</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// スタイルの追加と修正
+const styles: { [key: string]: React.CSSProperties } = {
+  container: {
+    fontFamily: 'Arial, sans-serif',
+    maxWidth: '800px',
+    margin: '40px auto',
+    padding: '20px',
+    border: '1px solid #ccc',
+    borderRadius: '8px',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+  },
+  title: {
+    textAlign: 'center',
+    color: '#333',
+    marginBottom: '30px',
+  },
+  form: {
+    display: 'flex',
+    justifyContent: 'center',
+    marginBottom: '30px',
+  },
+  input: {
+    padding: '12px 15px',
+    fontSize: '16px',
+    border: '1px solid #ddd',
+    borderRadius: '5px',
+    marginRight: '10px',
+    width: '60%',
+    boxSizing: 'border-box',
+  },
+  button: {
+    padding: '12px 20px',
+    fontSize: '16px',
+    backgroundColor: '#0070f3',
+    color: 'white',
+    border: 'none',
+    borderRadius: '5px',
+    cursor: 'pointer',
+    transition: 'background-color 0.3s ease',
+  },
+  buttonHover: {
+    backgroundColor: '#005bb5',
+  },
+  errorText: {
+    color: 'red',
+    textAlign: 'center',
+    marginTop: '10px',
+    marginBottom: '20px',
+  },
+  resultsContainer: {
+    marginTop: '30px',
+    borderTop: '1px solid #eee',
+    paddingTop: '20px',
+  },
+  resultsTitle: {
+    fontSize: '20px',
+    color: '#555',
+    marginBottom: '15px',
+    textAlign: 'center',
+  },
+  resultsList: {
+    listStyle: 'none',
+    padding: '0',
+  },
+  resultItem: {
+    backgroundColor: '#f9f9f9',
+    border: '1px solid #eee',
+    borderRadius: '5px',
+    padding: '15px',
+    marginBottom: '10px',
+  },
+  movieContent: {
+    display: 'flex',
+    alignItems: 'flex-start',
+  },
+  poster: {
+    width: '92px',
+    height: 'auto',
+    borderRadius: '4px',
+    marginRight: '15px',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+  },
+  movieDetails: {
+    flex: 1,
+  },
+  movieTitle: {
+    fontSize: '18px',
+    fontWeight: 'bold',
+    marginBottom: '5px',
+    color: '#333',
+  },
+  movieOverview: {
+    fontSize: '13px',
+    color: '#555',
+    marginBottom: '10px',
+    lineHeight: '1.5',
+  },
+  streamingProvidersContainer: {
+    marginTop: '10px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
+  streamingProvidersLabel: {
+    fontSize: '14px',
+    color: '#666',
+    marginBottom: '5px',
+    fontWeight: 'bold',
+  },
+  providerLogos: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
+  },
+  providerItem: {
+    display: 'flex',
+    alignItems: 'center',
+  },
+  providerLink: {
+    display: 'flex',
+    cursor: 'pointer',
+    textDecoration: 'none',
+  },
+  providerLogo: {
+    width: '30px',
+    height: '30px',
+    borderRadius: '50%',
+    border: '1px solid #ddd',
+    objectFit: 'cover',
+  },
+  providerName: {
+    fontSize: '12px',
+    color: '#555',
+    marginLeft: '5px',
+  },
+  noStreamingInfoSmall: {
+    fontSize: '14px',
+    color: '#999',
+    fontStyle: 'italic',
+  },
+  suggestionsContainer: {
+    marginTop: '20px',
+    padding: '15px',
+    backgroundColor: '#f0f8ff',
+    border: '1px solid #cceeff',
+    borderRadius: '8px',
+    textAlign: 'center',
+  },
+  suggestionsLabel: {
+    fontSize: '1.1em',
+    fontWeight: 'bold',
+    color: '#0056b3',
+    marginBottom: '10px',
+  },
+  suggestionsList: {
+    listStyle: 'none',
+    padding: '0',
+    display: 'flex',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: '10px',
+  },
+  suggestionItem: {
+    // リストアイテムのスタイルは特に必要ないが、flexアイテムとして機能させる
+  },
+  suggestionButton: {
+    backgroundColor: '#e0f7fa',
+    color: '#0070f3',
+    border: '1px solid #0070f3',
+    borderRadius: '20px',
+    padding: '8px 15px',
+    cursor: 'pointer',
+    fontSize: '0.95em',
+    transition: 'background-color 0.3s ease, color 0.3s ease',
+    '&:hover': {
+      backgroundColor: '#0070f3',
+      color: 'white',
+    },
+  },
+  loadingSuggestions: {
+    textAlign: 'center',
+    fontSize: '1em',
+    color: '#777',
+    marginTop: '20px',
+  },
+  accessCount: {
+    textAlign: 'center',
+    fontSize: '0.9em',
+    color: '#888',
+    marginTop: '10px',
+  },
+  userIdDisplay: {
+    textAlign: 'center',
+    fontSize: '0.8em',
+    color: '#a0a0a0',
+    marginBottom: '20px',
+  },
+  chatSection: {
+    marginTop: '20px',
+    paddingTop: '15px',
+    borderTop: '1px dashed #ddd',
+    backgroundColor: '#fdfdfd',
+    borderRadius: '8px',
+  },
+  chatTitle: {
+    fontSize: '1.3em',
+    color: '#333',
+    marginBottom: '10px',
+    textAlign: 'center',
+  },
+  chatMessagesContainer: {
+    maxHeight: '200px',
+    overflowY: 'auto',
+    border: '1px solid #eee',
+    borderRadius: '5px',
+    padding: '10px',
+    marginBottom: '10px',
+    backgroundColor: '#fff',
+  },
+  chatMessage: {
+    marginBottom: '8px',
+    wordBreak: 'break-word',
+  },
+  chatUserId: {
+    fontWeight: 'bold',
+    color: '#0070f3',
+    marginRight: '5px',
+  },
+  chatMessageText: {
+    color: '#333',
+  },
+  chatTimestamp: {
+    fontSize: '0.75em',
+    color: '#999',
+    marginLeft: '10px',
+  },
+  noMessages: {
+    color: '#999',
+    fontStyle: 'italic',
+    textAlign: 'center',
+  },
+  chatInputContainer: {
+    display: 'flex',
+    gap: '10px',
+  },
+  chatInput: {
+    flexGrow: 1,
+    padding: '8px 12px',
+    fontSize: '1em',
+    border: '1px solid #ccc',
+    borderRadius: '5px',
+  },
+  chatSendButton: {
+    padding: '8px 15px',
+    fontSize: '1em',
+    backgroundColor: '#28a745',
+    color: 'white',
+    border: 'none',
+    borderRadius: '5px',
+    cursor: 'pointer',
+    transition: 'background-color 0.3s ease',
+    '&:hover': {
+      backgroundColor: '#218838',
+    },
+    '&:disabled': {
+      backgroundColor: '#cccccc',
+      cursor: 'not-allowed',
+    },
+  },
+  chatAuthWarning: {
+    fontSize: '0.8em',
+    color: 'orange',
+    textAlign: 'center',
+    marginTop: '5px',
+  },
+};
