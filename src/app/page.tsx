@@ -2,13 +2,14 @@
 
 'use client';
 
-import { useState, useEffect } from 'react'; // ★変更: useEffectを追加
+import { useState, useEffect, useRef } from 'react';
 import React from 'react';
 
-// ★追加: Firebase関連のインポート
+// Firebase関連のインポート
+// Firebase SDKはpackage.jsonに依存関係として追加されている必要があります。
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, increment, onSnapshot } from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, increment, onSnapshot, collection, query, orderBy, addDoc, serverTimestamp } from 'firebase/firestore';
 
 // TMDB APIのベースURL
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
@@ -18,10 +19,16 @@ const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
 // Gemini APIのキー (Canvasが自動で提供)
 const GEMINI_API_KEY = ""; // この行は変更しないでください。Canvasが実行時にAPIキーを挿入します。
 
-// ★追加: Firebaseのグローバル変数（Canvas環境から提供される）
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+// Vercelの環境変数からFirebase設定を読み込む
+const firebaseConfig = {
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID, // 必要であれば
+};
 
 // 映画データの型定義
 interface MovieData {
@@ -65,6 +72,14 @@ interface AppMovieResult {
   justWatchLink?: string;
 }
 
+// チャットメッセージの型定義
+interface ChatMessage {
+  id: string; // ドキュメントID
+  userId: string;
+  message: string;
+  timestamp: number; // FirestoreのTimestampをnumberとして扱う
+}
+
 export default function Home() {
   const [movieTitle, setMovieTitle] = useState<string>('');
   const [results, setResults] = useState<AppMovieResult[]>([]);
@@ -73,55 +88,77 @@ export default function Home() {
   const [suggestedMovieTitles, setSuggestedMovieTitles] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState<boolean>(false);
 
-  // ★追加: FirebaseとFirestoreのステート
+  // FirebaseとFirestoreのステート
   const [db, setDb] = useState<any>(null);
   const [auth, setAuth] = useState<any>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  const [accessCount, setAccessCount] = useState<number>(0); // アクセス数用のステート
+  const [accessCount, setAccessCount] = useState<number>(0);
 
-  // ★追加: Firebaseの初期化と認証
+  // チャット関連のステート
+  const [chatMessages, setChatMessages] = useState<{ [movieId: number]: ChatMessage[] }>({});
+  const [chatInputs, setChatInputs] = useState<{ [movieId: number]: string }>({});
+  const chatListeners = useRef<{ [movieId: number]: () => void }>({});
+
+  // Firebaseの初期化と認証
   useEffect(() => {
     const initFirebase = async () => {
+      // Firebase設定が不完全な場合はエラー
+      if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+        console.error("Firebase configuration is incomplete. Check environment variables.");
+        setError("Firebaseの設定が不完全です。Vercelの環境変数を確認してください。");
+        return;
+      }
+
       try {
-        const app = initializeApp(firebaseConfig);
+        const app = initializeApp(firebaseConfig as any);
         const firestoreDb = getFirestore(app);
         const firebaseAuth = getAuth(app);
         setDb(firestoreDb);
         setAuth(firebaseAuth);
 
-        if (initialAuthToken) {
-          await signInWithCustomToken(firebaseAuth, initialAuthToken);
-        } else {
-          await signInAnonymously(firebaseAuth);
-        }
+        // 匿名認証を直接呼び出す
+        await signInAnonymously(firebaseAuth);
 
         onAuthStateChanged(firebaseAuth, (user) => {
           if (user) {
             setUserId(user.uid);
           } else {
-            // 匿名ユーザーの場合、ランダムなIDを使用
             setUserId(crypto.randomUUID());
           }
         });
-      } catch (e) {
-        console.error("Error initializing Firebase or signing in:", e);
-        setError("Firebaseの初期化に失敗しました。");
+      } catch (e: unknown) {
+        let errorMessage = 'Firebaseの初期化またはサインインに失敗しました。';
+        if (e instanceof Error) {
+          errorMessage = e.message;
+        } else if (typeof e === 'string') {
+          errorMessage = e;
+        }
+        console.error("Error initializing Firebase or signing in:", errorMessage);
+        setError(`Firebaseの初期化に失敗しました: ${errorMessage}`);
       }
     };
 
     initFirebase();
+
+    // コンポーネントアンマウント時に全てのチャットリスナーをクリーンアップ
+    return () => {
+      for (const movieId in chatListeners.current) {
+        if (chatListeners.current[movieId]) {
+          chatListeners.current[movieId](); // unsubscribeを呼び出す
+        }
+      }
+    };
   }, []); // 空の依存配列でコンポーネントマウント時に一度だけ実行
 
-  // ★追加: アクセス数をFirestoreでカウント
+  // アクセス数をFirestoreでカウント
   useEffect(() => {
     if (db && userId) {
-      // アクセス数を保存するドキュメントの参照
-      // 公開データなので /artifacts/{appId}/public/data/access_counts に保存
-      const accessDocRef = doc(db, `artifacts/${appId}/public/data/access_counts`, 'global_access');
+      // Canvas環境から提供される__app_idをここで直接使用
+      const currentAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+      const accessDocRef = doc(db, `artifacts/${currentAppId}/public/data/access_counts`, 'global_access');
 
       const incrementAccess = async () => {
         try {
-          // ドキュメントが存在しない場合は作成し、存在する場合はインクリメント
           await setDoc(accessDocRef, { count: increment(1) }, { merge: true });
           console.log("Access count incremented.");
         } catch (e) {
@@ -131,19 +168,59 @@ export default function Home() {
 
       incrementAccess();
 
-      // リアルタイムでアクセス数を監視し、UIに反映
       const unsubscribe = onSnapshot(accessDocRef, (docSnap) => {
         if (docSnap.exists()) {
           setAccessCount(docSnap.data()?.count || 0);
         } else {
-          setAccessCount(0); // ドキュメントがない場合は0
+          setAccessCount(0);
         }
       });
 
-      // コンポーネントのアンマウント時に購読を解除
       return () => unsubscribe();
     }
-  }, [db, userId, appId]); // db, userId, appId が変更されたときに再実行
+  }, [db, userId]); // dbとuserIdが変更されたときに再実行
+
+  // 各映画のチャットメッセージをリアルタイムで取得
+  useEffect(() => {
+    if (db && results.length > 0) {
+      const currentAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+      // 現在アクティブなリスナーを解除
+      for (const movieId in chatListeners.current) {
+        if (!results.some(r => r.id === parseInt(movieId))) { // 表示されていない映画のリスナーを解除
+          chatListeners.current[movieId]();
+          delete chatListeners.current[movieId];
+        }
+      }
+
+      results.forEach(movie => {
+        if (!chatListeners.current[movie.id]) { // まだリスナーが設定されていない場合のみ
+          const chatCollectionRef = collection(db, `artifacts/${currentAppId}/public/data/movie_chats/${movie.id}/messages`);
+          const q = query(chatCollectionRef, orderBy('timestamp', 'asc')); // タイムスタンプで昇順ソート
+
+          const unsubscribe = onSnapshot(q, (snapshot) => {
+            const messages: ChatMessage[] = [];
+            snapshot.forEach(doc => {
+              const data = doc.data();
+              messages.push({
+                id: doc.id,
+                userId: data.userId,
+                message: data.message,
+                timestamp: data.timestamp?.toMillis ? data.timestamp.toMillis() : data.timestamp, // Timestampオブジェクトをミリ秒に変換
+              });
+            });
+            setChatMessages(prev => ({
+              ...prev,
+              [movie.id]: messages
+            }));
+          }, (error) => {
+            console.error(`Error fetching chat messages for movie ${movie.id}:`, error);
+          });
+          chatListeners.current[movie.id] = unsubscribe; // リスナーを保存
+        }
+      });
+    }
+  }, [db, results]); // dbとresultsが変更されたときに再実行
 
   // 各オンデマンドサービスへのリンクを生成するヘルパー関数
   const getServiceSpecificLink = (providerName: string, movieTitle: string, justWatchMovieLink?: string): { link: string; trackingPixel?: string } => {
@@ -198,7 +275,7 @@ export default function Home() {
         body: JSON.stringify(payload)
       });
 
-      const result = await response.json();
+      const result = response.json();
 
       if (result.candidates && result.candidates.length > 0 &&
           result.candidates[0].content && result.candidates[0].content.parts &&
@@ -290,391 +367,4 @@ export default function Home() {
               services = Array.from(new Map(services.map(item => [item['name'], item])).values());
 
             } else {
-              console.warn(`視聴プロバイダー情報の取得に失敗しました (映画ID: ${movie.id}): ${providersResponse.statusText}`);
-            }
-
-            return {
-              id: movie.id,
-              title: movie.title,
-              release_date: movie.release_date,
-              overview: movie.overview,
-              poster_path: movie.poster_path,
-              streamingServices: services,
-              justWatchLink: justWatchLink,
-            };
-          } catch (providerError: unknown) {
-            let errorMessage = '不明なエラー';
-            if (providerError instanceof Error) {
-              errorMessage = providerError.message;
-            } else if (typeof providerError === 'string') {
-              errorMessage = providerError;
-            }
-            console.error(`視聴プロバイダー情報の取得中にエラーが発生しました (映画ID: ${movie.id}): ${errorMessage}`);
-            return {
-              id: movie.id,
-              title: movie.title,
-              release_date: movie.release_date,
-              overview: movie.overview,
-              poster_path: movie.poster_path,
-              streamingServices: [],
-              justWatchLink: undefined,
-            };
-          }
-        });
-
-        const finalResults = await Promise.all(moviesWithStreamingPromises);
-        setResults(finalResults);
-
-      } else {
-        setError('一致する映画が見つかりませんでした。');
-        fetchMovieSuggestions(movieTitle); // 提案をフェッチ
-      }
-
-    } catch (err: unknown) {
-      let errorMessage = '不明なエラー';
-      if (err instanceof Error) {
-        errorMessage = err.message;
-      } else if (typeof err === 'string') {
-        errorMessage = err;
-      }
-      console.error('映画検索エラー:', errorMessage);
-      setError(`映画の検索中にエラーが発生しました: ${errorMessage}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 提案されたタイトルをクリックしたときのハンドラ
-  const handleSuggestedTitleClick = (suggestedTitle: string) => {
-    setMovieTitle(suggestedTitle); // 検索ボックスに提案されたタイトルを設定
-    // フォームをプログラムで送信して新しい検索を開始
-    const form = document.querySelector('form');
-    if (form) {
-      form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-    }
-  };
-
-  return (
-    <div style={styles.container}>
-      <h1 style={styles.title}>どのオンデマンドで観れる？</h1>
-      <form onSubmit={handleSearch} style={styles.form}>
-        <input
-          type="text"
-          value={movieTitle}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setMovieTitle(e.target.value)}
-          placeholder="映画名を入力してください"
-          style={styles.input}
-          disabled={loading}
-        />
-        <button type="submit" style={styles.button} disabled={loading}>
-          {loading ? '検索中...' : '検索'}
-        </button>
-      </form>
-
-      {error && <p style={styles.errorText}>{error}</p>}
-
-      {/* ★追加: アクセス数を表示 */}
-      <p style={styles.accessCount}>累計アクセス数: {accessCount}</p>
-
-      {/* 提案された映画タイトルを表示 */}
-      {!loading && !error && results.length === 0 && suggestedMovieTitles.length > 0 && (
-        <div style={styles.suggestionsContainer}>
-          <p style={styles.suggestionsLabel}>もしかして？</p>
-          <ul style={styles.suggestionsList}>
-            {suggestedMovieTitles.map((suggestion, index) => (
-              <li key={index} style={styles.suggestionItem}>
-                <button
-                  type="button"
-                  onClick={() => handleSuggestedTitleClick(suggestion)}
-                  style={styles.suggestionButton}
-                >
-                  {suggestion}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {loadingSuggestions && results.length === 0 && !error && (
-        <p style={styles.loadingSuggestions}>提案を生成中...</p>
-      )}
-
-      <div style={styles.resultsContainer}>
-        {results.length > 0 ? (
-          <>
-            <h2 style={styles.resultsTitle}>検索結果</h2>
-            <ul style={styles.resultsList}>
-              {results.map((movie: AppMovieResult) => (
-                <li key={movie.id} style={styles.resultItem}>
-                  <div style={styles.movieContent}>
-                    {movie.poster_path && (
-                      <img
-                        src={`https://image.tmdb.org/t/p/w92${movie.poster_path}`}
-                        alt={movie.title}
-                        style={styles.poster}
-                      />
-                    )}
-                    <div style={styles.movieDetails}>
-                      <p style={styles.movieTitle}>
-                        {movie.title} ({movie.release_date ? movie.release_date.substring(0, 4) : '不明'})
-                      </p>
-                      {movie.overview && (
-                        <p style={styles.movieOverview}>
-                          {movie.overview.length > 150 ? movie.overview.substring(0, 150) + '...' : movie.overview}
-                        </p>
-                      )}
-                      <div style={styles.streamingProvidersContainer}>
-                        <p style={styles.streamingProvidersLabel}>視聴可能サービス:</p>
-                        {movie.streamingServices && movie.streamingServices.length > 0 ? (
-                          <div style={styles.providerLogos}>
-                            {movie.streamingServices.map((service, idx) => (
-                              <span key={idx} style={styles.providerItem}>
-                                {service.link && service.link !== '#' ? (
-                                  <a
-                                    href={service.link}
-                                    target="_blank"
-                                    rel="noopener noreferrer nofollow"
-                                    style={styles.providerLink}
-                                  >
-                                    {service.logo && (
-                                      <img
-                                        src={`https://image.tmdb.org/t/p/w45${service.logo}`}
-                                        alt={service.name}
-                                        title={service.name}
-                                        style={styles.providerLogo}
-                                      />
-                                    )}
-                                    {/* トラッキングピクセルをレンダリング */}
-                                    {service.trackingPixel && (
-                                      <img
-                                        src={service.trackingPixel}
-                                        alt=""
-                                        style={{ width: '1px', height: '1px', border: '0', position: 'absolute', left: '-9999px' }}
-                                      />
-                                    )}
-                                  </a>
-                                ) : (
-                                  service.logo && (
-                                    <img
-                                      src={`https://image.tmdb.org/t/p/w45${service.logo}`}
-                                      alt={service.name}
-                                      title={service.name}
-                                      style={styles.providerLogo}
-                                    />
-                                  )
-                                )}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p style={styles.noStreamingInfoSmall}>情報なし</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : (
-          !loading && !error && suggestedMovieTitles.length === 0 && <p style={styles.noResults}>映画名を入力して検索してください。</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// スタイルの追加と修正
-const styles: { [key: string]: React.CSSProperties } = {
-  container: {
-    fontFamily: 'Arial, sans-serif',
-    maxWidth: '800px',
-    margin: '40px auto',
-    padding: '20px',
-    border: '1px solid #ccc',
-    borderRadius: '8px',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  },
-  title: {
-    textAlign: 'center',
-    color: '#333',
-    marginBottom: '30px',
-  },
-  form: {
-    display: 'flex',
-    justifyContent: 'center',
-    marginBottom: '30px',
-  },
-  input: {
-    padding: '12px 15px',
-    fontSize: '16px',
-    border: '1px solid #ddd',
-    borderRadius: '5px',
-    marginRight: '10px',
-    width: '60%',
-    boxSizing: 'border-box',
-  },
-  button: {
-    padding: '12px 20px',
-    fontSize: '16px',
-    backgroundColor: '#0070f3',
-    color: 'white',
-    border: 'none',
-    borderRadius: '5px',
-    cursor: 'pointer',
-    transition: 'background-color 0.3s ease',
-  },
-  buttonHover: {
-    backgroundColor: '#005bb5',
-  },
-  errorText: {
-    color: 'red',
-    textAlign: 'center',
-    marginTop: '10px',
-    marginBottom: '20px',
-  },
-  resultsContainer: {
-    marginTop: '30px',
-    borderTop: '1px solid #eee',
-    paddingTop: '20px',
-  },
-  resultsTitle: {
-    fontSize: '20px',
-    color: '#555',
-    marginBottom: '15px',
-    textAlign: 'center',
-  },
-  resultsList: {
-    listStyle: 'none',
-    padding: '0',
-  },
-  resultItem: {
-    backgroundColor: '#f9f9f9',
-    border: '1px solid #eee',
-    borderRadius: '5px',
-    padding: '15px',
-    marginBottom: '10px',
-  },
-  movieContent: {
-    display: 'flex',
-    alignItems: 'flex-start',
-  },
-  poster: {
-    width: '92px',
-    height: 'auto',
-    borderRadius: '4px',
-    marginRight: '15px',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  },
-  movieDetails: {
-    flex: 1,
-  },
-  movieTitle: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    marginBottom: '5px',
-    color: '#333',
-  },
-  movieOverview: {
-    fontSize: '13px',
-    color: '#555',
-    marginBottom: '10px',
-    lineHeight: '1.5',
-  },
-  streamingProvidersContainer: {
-    marginTop: '10px',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-  },
-  streamingProvidersLabel: {
-    fontSize: '14px',
-    color: '#666',
-    marginBottom: '5px',
-    fontWeight: 'bold',
-  },
-  providerLogos: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: '8px',
-  },
-  providerItem: {
-    display: 'flex',
-    alignItems: 'center',
-  },
-  providerLink: {
-    display: 'flex',
-    cursor: 'pointer',
-    textDecoration: 'none',
-  },
-  providerLogo: {
-    width: '30px',
-    height: '30px',
-    borderRadius: '50%',
-    border: '1px solid #ddd',
-    objectFit: 'cover',
-  },
-  providerName: {
-    fontSize: '12px',
-    color: '#555',
-    marginLeft: '5px',
-  },
-  noStreamingInfoSmall: {
-    fontSize: '14px',
-    color: '#999',
-    fontStyle: 'italic',
-  },
-  // 提案表示用のスタイル
-  suggestionsContainer: {
-    marginTop: '20px',
-    padding: '15px',
-    backgroundColor: '#f0f8ff', // 薄い青の背景
-    border: '1px solid #cceeff',
-    borderRadius: '8px',
-    textAlign: 'center',
-  },
-  suggestionsLabel: {
-    fontSize: '1.1em',
-    fontWeight: 'bold',
-    color: '#0056b3',
-    marginBottom: '10px',
-  },
-  suggestionsList: {
-    listStyle: 'none',
-    padding: '0',
-    display: 'flex',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: '10px',
-  },
-  suggestionItem: {
-    // リストアイテムのスタイルは特に必要ないが、flexアイテムとして機能させる
-  },
-  suggestionButton: {
-    backgroundColor: '#e0f7fa', // 薄いシアンのボタン
-    color: '#0070f3',
-    border: '1px solid #0070f3',
-    borderRadius: '20px',
-    padding: '8px 15px',
-    cursor: 'pointer',
-    fontSize: '0.95em',
-    transition: 'background-color 0.3s ease, color 0.3s ease',
-    '&:hover': {
-      backgroundColor: '#0070f3',
-      color: 'white',
-    },
-  },
-  loadingSuggestions: {
-    textAlign: 'center',
-    fontSize: '1em',
-    color: '#777',
-    marginTop: '20px',
-  },
-  // ★追加: アクセス数表示用のスタイル
-  accessCount: {
-    textAlign: 'center',
-    fontSize: '0.9em',
-    color: '#888',
-    marginTop: '10px',
-  },
-};
+              console.warn(`視聴プロバイダー情報の取得に失敗しました (映画ID:
