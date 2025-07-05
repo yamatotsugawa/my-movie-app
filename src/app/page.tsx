@@ -4,21 +4,20 @@
 
 import { useState } from 'react';
 import React from 'react';
-// import Link from 'next/link'; // ★修正: Linkコンポーネントはもう使わないので削除
+// import Link from 'next/link'; // Linkコンポーネントはもう使わないので削除済み
 
 // TMDB APIのベースURL
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 // APIキーは環境変数から取得
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
 
-// ★追加: 映画データの型定義
+// 映画データの型定義
 interface MovieData {
   id: number;
   title: string;
   release_date?: string;
   overview?: string;
   poster_path?: string;
-  // 以下はAPIレスポンスのプロパティ
   genres?: { id: number; name: string }[];
   runtime?: number;
   vote_average?: number;
@@ -35,7 +34,7 @@ interface MovieData {
   };
 }
 
-// ★追加: ストリーミングサービスプロバイダーの型定義
+// ストリーミングサービスプロバイダーの型定義
 interface Provider {
   provider_id: number;
   provider_name: string;
@@ -43,44 +42,51 @@ interface Provider {
   display_priority: number;
 }
 
-// ★追加: アプリ内で使用する映画結果の型定義
+// アプリ内で使用する映画結果の型定義
 interface AppMovieResult {
   id: number;
   title: string;
   release_date?: string;
   overview?: string;
   poster_path?: string;
-  streamingServices?: { name: string; logo: string; link?: string }[];
+  streamingServices?: { name: string; logo: string; link?: string; trackingPixel?: string }[]; // ★変更: trackingPixelプロパティを追加
   justWatchLink?: string;
 }
 
 export default function Home() {
   const [movieTitle, setMovieTitle] = useState<string>('');
-  const [results, setResults] = useState<AppMovieResult[]>([]); // ★修正: AppMovieResult[] 型を使用
+  const [results, setResults] = useState<AppMovieResult[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   // 各オンデマンドサービスへのリンクを生成するヘルパー関数
-  const getServiceSpecificLink = (providerName: string, movieTitle: string, justWatchMovieLink?: string): string => {
+  // ★変更: trackingPixelを返すように修正
+  const getServiceSpecificLink = (providerName: string, movieTitle: string, justWatchMovieLink?: string): { link: string; trackingPixel?: string } => {
     switch (providerName) {
       case 'Amazon Prime Video':
-        return `https://www.amazon.co.jp/s?k=${encodeURIComponent(movieTitle)}&i=instant-video`;
+        // ★変更: 提供されたAmazon Prime Videoのアフィリエイトリンクを使用
+        return { link: 'https://amzn.to/4laFdah' };
       case 'Netflix':
-        return 'https://www.netflix.com/jp/';
+        // Netflixは直接検索ページへのリンクが提供されていないため、トップページへ
+        return { link: 'https://www.netflix.com/jp/' };
       case 'U-NEXT':
-        return 'https://video.unext.jp/';
+        // ★U-NEXTのアフィリエイトリンクとトラッキングピクセル
+        return {
+          link: 'https://px.a8.net/svt/ejp?a8mat=35HC44+2G46B6+3250+6MC8Y',
+          trackingPixel: 'https://www16.a8.net/0.gif?a8mat=35HC44+2G46B6+3250+6MC8Y'
+        };
       case 'Hulu':
-        return 'https://www.hulu.jp/';
+        return { link: 'https://www.hulu.jp/' };
       case 'Disney Plus':
-        return 'https://www.disneyplus.com/ja-jp';
+        return { link: 'https://www.disneyplus.com/ja-jp' };
       case 'Apple TV':
-        return `https://tv.apple.com/jp/search/${encodeURIComponent(movieTitle)}`;
+        return { link: `https://tv.apple.com/jp/search/${encodeURIComponent(movieTitle)}` };
       case 'Google Play Movies':
-        return `https://play.google.com/store/search?q=${encodeURIComponent(movieTitle)}&c=movies`;
+        return { link: `https://play.google.com/store/search?q=${encodeURIComponent(movieTitle)}&c=movies` };
       case 'YouTube':
-        return `https://www.youtube.com/results?search_query=${encodeURIComponent(movieTitle)}+full+movie`;
+        return { link: `https://www.youtube.com/results?search_query=${encodeURIComponent(movieTitle)}+full+movie` };
       default:
-        return justWatchMovieLink || '#';
+        return { link: justWatchMovieLink || '#' };
     }
   };
 
@@ -120,7 +126,7 @@ export default function Home() {
             const providersResponse = await fetch(providersUrl);
 
             let justWatchLink: string | undefined = undefined;
-            let services: { name: string; logo: string; link?: string }[] = [];
+            let services: { name: string; logo: string; link?: string; trackingPixel?: string }[] = []; // ★変更: trackingPixelプロパティを持つ型
 
             if (providersResponse.ok) {
               const providersData: { results: { JP?: { link?: string; flatrate?: Provider[]; buy?: Provider[]; rent?: Provider[] } } } = await providersResponse.json();
@@ -131,10 +137,12 @@ export default function Home() {
               const addServices = (providerList: Provider[] | undefined) => {
                 if (providerList) {
                   providerList.forEach((p: Provider) => {
+                    const serviceLinkInfo = getServiceSpecificLink(p.provider_name, movie.title, justWatchLink); // ★変更: ヘルパー関数の戻り値を使用
                     services.push({
                       name: p.provider_name,
                       logo: p.logo_path,
-                      link: getServiceSpecificLink(p.provider_name, movie.title, justWatchLink),
+                      link: serviceLinkInfo.link, // ★変更
+                      trackingPixel: serviceLinkInfo.trackingPixel, // ★変更
                     });
                   });
                 }
@@ -166,7 +174,7 @@ export default function Home() {
             } else if (typeof providerError === 'string') {
               errorMessage = providerError;
             }
-            console.error(`視聴プロバイダー情報の取得中にエラーが発生しました (映画ID: ${movie.id}): ${errorMessage}`); // ★修正: errorMessageを使用
+            console.error(`視聴プロバイダー情報の取得中にエラーが発生しました (映画ID: ${movie.id}): ${errorMessage}`);
             return {
               id: movie.id,
               title: movie.title,
@@ -193,7 +201,7 @@ export default function Home() {
       } else if (typeof err === 'string') {
         errorMessage = err;
       }
-      console.error('映画検索エラー:', errorMessage); // ★修正: errorMessageを使用
+      console.error('映画検索エラー:', errorMessage);
       setError(`映画の検索中にエラーが発生しました: ${errorMessage}`);
     } finally {
       setLoading(false);
@@ -253,7 +261,7 @@ export default function Home() {
                                   <a
                                     href={service.link}
                                     target="_blank"
-                                    rel="noopener noreferrer"
+                                    rel="noopener noreferrer nofollow" // ★変更: nofollowを追加
                                     style={styles.providerLink}
                                   >
                                     {service.logo && (
@@ -262,6 +270,14 @@ export default function Home() {
                                         alt={service.name}
                                         title={service.name}
                                         style={styles.providerLogo}
+                                      />
+                                    )}
+                                    {/* ★追加: トラッキングピクセルをレンダリング */}
+                                    {service.trackingPixel && (
+                                      <img
+                                        src={service.trackingPixel}
+                                        alt=""
+                                        style={{ width: '1px', height: '1px', border: '0', position: 'absolute', left: '-9999px' }} // 見えないようにするスタイル
                                       />
                                     )}
                                   </a>
