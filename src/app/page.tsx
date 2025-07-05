@@ -11,6 +11,9 @@ const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 // APIキーは環境変数から取得
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
 
+// Gemini APIのキー (Canvasが自動で提供)
+const GEMINI_API_KEY = ""; // この行は変更しないでください。Canvasが実行時にAPIキーを挿入します。
+
 // 映画データの型定義
 interface MovieData {
   id: number;
@@ -49,7 +52,7 @@ interface AppMovieResult {
   release_date?: string;
   overview?: string;
   poster_path?: string;
-  streamingServices?: { name: string; logo: string; link?: string; trackingPixel?: string }[]; // ★変更: trackingPixelプロパティを追加
+  streamingServices?: { name: string; logo: string; link?: string; trackingPixel?: string }[];
   justWatchLink?: string;
 }
 
@@ -58,19 +61,26 @@ export default function Home() {
   const [results, setResults] = useState<AppMovieResult[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  // ★追加: 提案された映画タイトルを保持するステート
+  const [suggestedMovieTitles, setSuggestedMovieTitles] = useState<string[]>([]);
+  // ★追加: 提案の読み込み状態
+  const [loadingSuggestions, setLoadingSuggestions] = useState<boolean>(false);
 
   // 各オンデマンドサービスへのリンクを生成するヘルパー関数
-  // ★変更: trackingPixelを返すように修正
   const getServiceSpecificLink = (providerName: string, movieTitle: string, justWatchMovieLink?: string): { link: string; trackingPixel?: string } => {
+    // AmazonアソシエイトのトラッキングIDをここに設定してください
+    // 例: const amazonTrackingId = "your-amazon-associate-id-22";
+    const amazonTrackingId = ""; // あなたのトラッキングIDに置き換えてください
+
     switch (providerName) {
       case 'Amazon Prime Video':
-        // ★変更: 提供されたAmazon Prime Videoのアフィリエイトリンクを使用
-        return { link: 'https://amzn.to/4laFdah' };
+        // AmazonでDVDを検索するアフィリエイトリンク
+        return { link: `https://www.amazon.co.jp/s?k=${encodeURIComponent(movieTitle)}&i=dvd&rh=n%3A561956&tag=${amazonTrackingId}` };
       case 'Netflix':
         // Netflixは直接検索ページへのリンクが提供されていないため、トップページへ
         return { link: 'https://www.netflix.com/jp/' };
       case 'U-NEXT':
-        // ★U-NEXTのアフィリエイトリンクとトラッキングピクセル
+        // U-NEXTのアフィリエイトリンクとトラッキングピクセル
         return {
           link: 'https://px.a8.net/svt/ejp?a8mat=35HC44+2G46B6+3250+6MC8Y',
           trackingPixel: 'https://www16.a8.net/0.gif?a8mat=35HC44+2G46B6+3250+6MC8Y'
@@ -90,6 +100,51 @@ export default function Home() {
     }
   };
 
+  // ★追加: Gemini APIを呼び出して映画タイトルを提案する関数
+  const fetchMovieSuggestions = async (query: string) => {
+    setLoadingSuggestions(true);
+    setSuggestedMovieTitles([]); // 以前の提案をクリア
+
+    try {
+      let chatHistory = [];
+      const prompt = `ユーザーが映画タイトルを検索しましたが、結果が見つかりませんでした。元の検索クエリは「${query}」です。このクエリに似ている可能性のある、最大5つの異なる映画タイトルを提案してください。各タイトルは改行で区切ってください。もし提案がなければ「なし」とだけ答えてください。`;
+      chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+
+      const payload = { contents: chatHistory };
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+
+      if (result.candidates && result.candidates.length > 0 &&
+          result.candidates[0].content && result.candidates[0].content.parts &&
+          result.candidates[0].content.parts.length > 0) {
+        const text = result.candidates[0].content.parts[0].text;
+        if (text.trim().toLowerCase() !== 'なし') {
+          // 改行で区切られたタイトルを配列に変換
+          const suggestions = text.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+          setSuggestedMovieTitles(suggestions);
+        }
+      } else {
+        console.warn('Gemini APIから有効な提案がありませんでした。');
+      }
+    } catch (err: unknown) {
+      let errorMessage = '提案の取得中に不明なエラーが発生しました。';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
+      console.error('映画提案取得エラー:', errorMessage);
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,6 +152,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setResults([]);
+    setSuggestedMovieTitles([]); // 新しい検索の前に提案をクリア
 
     if (!movieTitle.trim()) {
       setError('映画名を入力してください。');
@@ -126,7 +182,7 @@ export default function Home() {
             const providersResponse = await fetch(providersUrl);
 
             let justWatchLink: string | undefined = undefined;
-            let services: { name: string; logo: string; link?: string; trackingPixel?: string }[] = []; // ★変更: trackingPixelプロパティを持つ型
+            let services: { name: string; logo: string; link?: string; trackingPixel?: string }[] = [];
 
             if (providersResponse.ok) {
               const providersData: { results: { JP?: { link?: string; flatrate?: Provider[]; buy?: Provider[]; rent?: Provider[] } } } = await providersResponse.json();
@@ -137,12 +193,12 @@ export default function Home() {
               const addServices = (providerList: Provider[] | undefined) => {
                 if (providerList) {
                   providerList.forEach((p: Provider) => {
-                    const serviceLinkInfo = getServiceSpecificLink(p.provider_name, movie.title, justWatchLink); // ★変更: ヘルパー関数の戻り値を使用
+                    const serviceLinkInfo = getServiceSpecificLink(p.provider_name, movie.title, justWatchLink);
                     services.push({
                       name: p.provider_name,
                       logo: p.logo_path,
-                      link: serviceLinkInfo.link, // ★変更
-                      trackingPixel: serviceLinkInfo.trackingPixel, // ★変更
+                      link: serviceLinkInfo.link,
+                      trackingPixel: serviceLinkInfo.trackingPixel,
                     });
                   });
                 }
@@ -191,7 +247,9 @@ export default function Home() {
         setResults(finalResults);
 
       } else {
+        // ★変更: 検索結果がない場合にGemini APIを呼び出す
         setError('一致する映画が見つかりませんでした。');
+        fetchMovieSuggestions(movieTitle); // 提案をフェッチ
       }
 
     } catch (err: unknown) {
@@ -205,6 +263,16 @@ export default function Home() {
       setError(`映画の検索中にエラーが発生しました: ${errorMessage}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ★追加: 提案されたタイトルをクリックしたときのハンドラ
+  const handleSuggestedTitleClick = (suggestedTitle: string) => {
+    setMovieTitle(suggestedTitle); // 検索ボックスに提案されたタイトルを設定
+    // フォームをプログラムで送信して新しい検索を開始
+    const form = document.querySelector('form');
+    if (form) {
+      form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     }
   };
 
@@ -226,6 +294,29 @@ export default function Home() {
       </form>
 
       {error && <p style={styles.errorText}>{error}</p>}
+
+      {/* ★追加: 提案された映画タイトルを表示 */}
+      {!loading && !error && results.length === 0 && suggestedMovieTitles.length > 0 && (
+        <div style={styles.suggestionsContainer}>
+          <p style={styles.suggestionsLabel}>もしかして？</p>
+          <ul style={styles.suggestionsList}>
+            {suggestedMovieTitles.map((suggestion, index) => (
+              <li key={index} style={styles.suggestionItem}>
+                <button
+                  type="button" // フォーム送信を防ぐ
+                  onClick={() => handleSuggestedTitleClick(suggestion)}
+                  style={styles.suggestionButton}
+                >
+                  {suggestion}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {loadingSuggestions && results.length === 0 && !error && (
+        <p style={styles.loadingSuggestions}>提案を生成中...</p>
+      )}
 
       <div style={styles.resultsContainer}>
         {results.length > 0 ? (
@@ -261,7 +352,7 @@ export default function Home() {
                                   <a
                                     href={service.link}
                                     target="_blank"
-                                    rel="noopener noreferrer nofollow" // ★変更: nofollowを追加
+                                    rel="noopener noreferrer nofollow"
                                     style={styles.providerLink}
                                   >
                                     {service.logo && (
@@ -272,12 +363,12 @@ export default function Home() {
                                         style={styles.providerLogo}
                                       />
                                     )}
-                                    {/* ★追加: トラッキングピクセルをレンダリング */}
+                                    {/* トラッキングピクセルをレンダリング */}
                                     {service.trackingPixel && (
                                       <img
                                         src={service.trackingPixel}
                                         alt=""
-                                        style={{ width: '1px', height: '1px', border: '0', position: 'absolute', left: '-9999px' }} // 見えないようにするスタイル
+                                        style={{ width: '1px', height: '1px', border: '0', position: 'absolute', left: '-9999px' }}
                                       />
                                     )}
                                   </a>
@@ -305,7 +396,8 @@ export default function Home() {
             </ul>
           </>
         ) : (
-          !loading && !error && <p style={styles.noResults}>映画名を入力して検索してください。</p>
+          // ★変更: 検索結果がない場合でも、提案が表示される場合はこのメッセージを表示しない
+          !loading && !error && suggestedMovieTitles.length === 0 && <p style={styles.noResults}>映画名を入力して検索してください。</p>
         )}
       </div>
     </div>
@@ -451,5 +543,51 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: '14px',
     color: '#999',
     fontStyle: 'italic',
+  },
+  // ★追加: 提案表示用のスタイル
+  suggestionsContainer: {
+    marginTop: '20px',
+    padding: '15px',
+    backgroundColor: '#f0f8ff', // 薄い青の背景
+    border: '1px solid #cceeff',
+    borderRadius: '8px',
+    textAlign: 'center',
+  },
+  suggestionsLabel: {
+    fontSize: '1.1em',
+    fontWeight: 'bold',
+    color: '#0056b3',
+    marginBottom: '10px',
+  },
+  suggestionsList: {
+    listStyle: 'none',
+    padding: '0',
+    display: 'flex',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: '10px',
+  },
+  suggestionItem: {
+    // リストアイテムのスタイルは特に必要ないが、flexアイテムとして機能させる
+  },
+  suggestionButton: {
+    backgroundColor: '#e0f7fa', // 薄いシアンのボタン
+    color: '#0070f3',
+    border: '1px solid #0070f3',
+    borderRadius: '20px',
+    padding: '8px 15px',
+    cursor: 'pointer',
+    fontSize: '0.95em',
+    transition: 'background-color 0.3s ease, color 0.3s ease',
+    '&:hover': {
+      backgroundColor: '#0070f3',
+      color: 'white',
+    },
+  },
+  loadingSuggestions: {
+    textAlign: 'center',
+    fontSize: '1em',
+    color: '#777',
+    marginTop: '20px',
   },
 };
