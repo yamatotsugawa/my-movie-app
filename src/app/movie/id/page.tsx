@@ -111,10 +111,10 @@ export default function Home() {
       if (!searchResponse.ok) {
         throw new Error(`映画検索API呼び出しに失敗しました: ${searchResponse.statusText} (ステータスコード: ${searchResponse.status})`);
       }
-      const searchData: { results: MovieData[] } = await searchResponse.json(); // ★修正: 型を明示
+      const searchData: { results: MovieData[] } = await searchResponse.json();
 
       if (searchData.results && searchData.results.length > 0) {
-        const moviesWithStreamingPromises = searchData.results.map(async (movie: MovieData) => { // ★修正: movieの型をMovieDataに
+        const moviesWithStreamingPromises = searchData.results.map(async (movie: MovieData) => {
           try {
             const providersUrl = `${TMDB_BASE_URL}/movie/${movie.id}/watch/providers?api_key=${TMDB_API_KEY}`;
             const providersResponse = await fetch(providersUrl);
@@ -123,14 +123,14 @@ export default function Home() {
             let services: { name: string; logo: string; link?: string }[] = [];
 
             if (providersResponse.ok) {
-              const providersData: { results: { JP?: { link?: string; flatrate?: Provider[]; buy?: Provider[]; rent?: Provider[] } } } = await providersResponse.json(); // ★修正: 型を明示
+              const providersData: { results: { JP?: { link?: string; flatrate?: Provider[]; buy?: Provider[]; rent?: Provider[] } } } = await providersResponse.json();
               const jpProviders = providersData.results?.JP;
 
               justWatchLink = jpProviders?.link;
 
-              const addServices = (providerList: Provider[] | undefined) => { // ★修正: providerListの型を明示
+              const addServices = (providerList: Provider[] | undefined) => {
                 if (providerList) {
-                  providerList.forEach((p: Provider) => { // ★修正: pの型をProviderに
+                  providerList.forEach((p: Provider) => {
                     services.push({
                       name: p.provider_name,
                       logo: p.logo_path,
@@ -159,7 +159,13 @@ export default function Home() {
               streamingServices: services,
               justWatchLink: justWatchLink,
             };
-          } catch (providerError: any) {
+          } catch (providerError: unknown) { // ★修正: anyをunknownに変更
+            let errorMessage = '不明なエラー';
+            if (providerError instanceof Error) {
+              errorMessage = providerError.message;
+            } else if (typeof providerError === 'string') {
+              errorMessage = providerError;
+            }
             console.error(`視聴プロバイダー情報の取得中にエラーが発生しました (映画ID: ${movie.id}):`, providerError);
             return {
               id: movie.id,
@@ -180,9 +186,15 @@ export default function Home() {
         setError('一致する映画が見つかりませんでした。');
       }
 
-    } catch (err: any) {
+    } catch (err: unknown) { // ★修正: anyをunknownに変更
+      let errorMessage = '不明なエラー';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
       console.error('映画検索エラー:', err);
-      setError(`映画の検索中にエラーが発生しました: ${err.message}`);
+      setError(`映画の検索中にエラーが発生しました: ${errorMessage}`); // ★修正: errorMessageを使用
     } finally {
       setLoading(false);
     }
@@ -212,7 +224,7 @@ export default function Home() {
           <>
             <h2 style={styles.resultsTitle}>検索結果</h2>
             <ul style={styles.resultsList}>
-              {results.map((movie: AppMovieResult) => ( // ★修正: movieの型をAppMovieResultに
+              {results.map((movie: AppMovieResult) => (
                 <li key={movie.id} style={styles.resultItem}>
                   <div style={styles.movieContent}>
                     {movie.poster_path && (
