@@ -159,14 +159,14 @@ export default function Home() {
               streamingServices: services,
               justWatchLink: justWatchLink,
             };
-          } catch (providerError: unknown) { // ★修正: anyをunknownに変更
+          } catch (providerError: unknown) {
             let errorMessage = '不明なエラー';
             if (providerError instanceof Error) {
               errorMessage = providerError.message;
             } else if (typeof providerError === 'string') {
               errorMessage = providerError;
             }
-            console.error(`視聴プロバイダー情報の取得中にエラーが発生しました (映画ID: ${movie.id}):`, providerError);
+            console.error(`視聴プロバイダー情報の取得中にエラーが発生しました (映画ID: ${movie.id}): ${errorMessage}`); // ★修正: errorMessageを使用
             return {
               id: movie.id,
               title: movie.title,
@@ -186,15 +186,15 @@ export default function Home() {
         setError('一致する映画が見つかりませんでした。');
       }
 
-    } catch (err: unknown) { // ★修正: anyをunknownに変更
+    } catch (err: unknown) {
       let errorMessage = '不明なエラー';
       if (err instanceof Error) {
         errorMessage = err.message;
       } else if (typeof err === 'string') {
         errorMessage = err;
       }
-      console.error('映画検索エラー:', err);
-      setError(`映画の検索中にエラーが発生しました: ${errorMessage}`); // ★修正: errorMessageを使用
+      console.error('映画検索エラー:', errorMessage); // ★修正: errorMessageを使用
+      setError(`映画の検索中にエラーが発生しました: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
