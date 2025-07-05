@@ -3,7 +3,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Analytics } from "@vercel/analytics/react"; // ★追加: Vercel Analyticsのインポート
+import { Analytics } from "@vercel/analytics/next"; // ★変更: Vercel Analyticsのインポートパスをnextに変更
 
 const inter = Inter({ subsets: ["latin"] });
 
