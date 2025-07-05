@@ -2,9 +2,13 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react'; // ★変更: useEffectを追加
 import React from 'react';
-// import Link from 'next/link'; // Linkコンポーネントはもう使わないので削除済み
+
+// ★追加: Firebase関連のインポート
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, increment, onSnapshot } from 'firebase/firestore';
 
 // TMDB APIのベースURL
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
@@ -13,6 +17,11 @@ const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
 
 // Gemini APIのキー (Canvasが自動で提供)
 const GEMINI_API_KEY = ""; // この行は変更しないでください。Canvasが実行時にAPIキーを挿入します。
+
+// ★追加: Firebaseのグローバル変数（Canvas環境から提供される）
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
 // 映画データの型定義
 interface MovieData {
@@ -61,10 +70,80 @@ export default function Home() {
   const [results, setResults] = useState<AppMovieResult[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  // ★追加: 提案された映画タイトルを保持するステート
   const [suggestedMovieTitles, setSuggestedMovieTitles] = useState<string[]>([]);
-  // ★追加: 提案の読み込み状態
   const [loadingSuggestions, setLoadingSuggestions] = useState<boolean>(false);
+
+  // ★追加: FirebaseとFirestoreのステート
+  const [db, setDb] = useState<any>(null);
+  const [auth, setAuth] = useState<any>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [accessCount, setAccessCount] = useState<number>(0); // アクセス数用のステート
+
+  // ★追加: Firebaseの初期化と認証
+  useEffect(() => {
+    const initFirebase = async () => {
+      try {
+        const app = initializeApp(firebaseConfig);
+        const firestoreDb = getFirestore(app);
+        const firebaseAuth = getAuth(app);
+        setDb(firestoreDb);
+        setAuth(firebaseAuth);
+
+        if (initialAuthToken) {
+          await signInWithCustomToken(firebaseAuth, initialAuthToken);
+        } else {
+          await signInAnonymously(firebaseAuth);
+        }
+
+        onAuthStateChanged(firebaseAuth, (user) => {
+          if (user) {
+            setUserId(user.uid);
+          } else {
+            // 匿名ユーザーの場合、ランダムなIDを使用
+            setUserId(crypto.randomUUID());
+          }
+        });
+      } catch (e) {
+        console.error("Error initializing Firebase or signing in:", e);
+        setError("Firebaseの初期化に失敗しました。");
+      }
+    };
+
+    initFirebase();
+  }, []); // 空の依存配列でコンポーネントマウント時に一度だけ実行
+
+  // ★追加: アクセス数をFirestoreでカウント
+  useEffect(() => {
+    if (db && userId) {
+      // アクセス数を保存するドキュメントの参照
+      // 公開データなので /artifacts/{appId}/public/data/access_counts に保存
+      const accessDocRef = doc(db, `artifacts/${appId}/public/data/access_counts`, 'global_access');
+
+      const incrementAccess = async () => {
+        try {
+          // ドキュメントが存在しない場合は作成し、存在する場合はインクリメント
+          await setDoc(accessDocRef, { count: increment(1) }, { merge: true });
+          console.log("Access count incremented.");
+        } catch (e) {
+          console.error("Error incrementing access count:", e);
+        }
+      };
+
+      incrementAccess();
+
+      // リアルタイムでアクセス数を監視し、UIに反映
+      const unsubscribe = onSnapshot(accessDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setAccessCount(docSnap.data()?.count || 0);
+        } else {
+          setAccessCount(0); // ドキュメントがない場合は0
+        }
+      });
+
+      // コンポーネントのアンマウント時に購読を解除
+      return () => unsubscribe();
+    }
+  }, [db, userId, appId]); // db, userId, appId が変更されたときに再実行
 
   // 各オンデマンドサービスへのリンクを生成するヘルパー関数
   const getServiceSpecificLink = (providerName: string, movieTitle: string, justWatchMovieLink?: string): { link: string; trackingPixel?: string } => {
@@ -100,7 +179,7 @@ export default function Home() {
     }
   };
 
-  // ★追加: Gemini APIを呼び出して映画タイトルを提案する関数
+  // Gemini APIを呼び出して映画タイトルを提案する関数
   const fetchMovieSuggestions = async (query: string) => {
     setLoadingSuggestions(true);
     setSuggestedMovieTitles([]); // 以前の提案をクリア
@@ -247,7 +326,6 @@ export default function Home() {
         setResults(finalResults);
 
       } else {
-        // ★変更: 検索結果がない場合にGemini APIを呼び出す
         setError('一致する映画が見つかりませんでした。');
         fetchMovieSuggestions(movieTitle); // 提案をフェッチ
       }
@@ -266,7 +344,7 @@ export default function Home() {
     }
   };
 
-  // ★追加: 提案されたタイトルをクリックしたときのハンドラ
+  // 提案されたタイトルをクリックしたときのハンドラ
   const handleSuggestedTitleClick = (suggestedTitle: string) => {
     setMovieTitle(suggestedTitle); // 検索ボックスに提案されたタイトルを設定
     // フォームをプログラムで送信して新しい検索を開始
@@ -295,7 +373,10 @@ export default function Home() {
 
       {error && <p style={styles.errorText}>{error}</p>}
 
-      {/* ★追加: 提案された映画タイトルを表示 */}
+      {/* ★追加: アクセス数を表示 */}
+      <p style={styles.accessCount}>累計アクセス数: {accessCount}</p>
+
+      {/* 提案された映画タイトルを表示 */}
       {!loading && !error && results.length === 0 && suggestedMovieTitles.length > 0 && (
         <div style={styles.suggestionsContainer}>
           <p style={styles.suggestionsLabel}>もしかして？</p>
@@ -303,7 +384,7 @@ export default function Home() {
             {suggestedMovieTitles.map((suggestion, index) => (
               <li key={index} style={styles.suggestionItem}>
                 <button
-                  type="button" // フォーム送信を防ぐ
+                  type="button"
                   onClick={() => handleSuggestedTitleClick(suggestion)}
                   style={styles.suggestionButton}
                 >
@@ -396,7 +477,6 @@ export default function Home() {
             </ul>
           </>
         ) : (
-          // ★変更: 検索結果がない場合でも、提案が表示される場合はこのメッセージを表示しない
           !loading && !error && suggestedMovieTitles.length === 0 && <p style={styles.noResults}>映画名を入力して検索してください。</p>
         )}
       </div>
@@ -544,7 +624,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: '#999',
     fontStyle: 'italic',
   },
-  // ★追加: 提案表示用のスタイル
+  // 提案表示用のスタイル
   suggestionsContainer: {
     marginTop: '20px',
     padding: '15px',
@@ -589,5 +669,12 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: '1em',
     color: '#777',
     marginTop: '20px',
+  },
+  // ★追加: アクセス数表示用のスタイル
+  accessCount: {
+    textAlign: 'center',
+    fontSize: '0.9em',
+    color: '#888',
+    marginTop: '10px',
   },
 };
