@@ -1,17 +1,17 @@
 // src/app/page.tsx
 
-'use client';
+'use client'; // クライアントコンポーネントとしてマーク
 
 import { useState } from 'react';
 import React from 'react';
-// import Link from 'next/link'; // ★修正: Linkコンポーネントはもう使わないので削除
+import Image from 'next/image'; // ★追加: Next.jsのImageコンポーネントをインポート
 
 // TMDB APIのベースURL
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 // APIキーは環境変数から取得
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
 
-// ★追加: 映画データの型定義
+// 映画データの型定義
 interface MovieData {
   id: number;
   title: string;
@@ -35,7 +35,7 @@ interface MovieData {
   };
 }
 
-// ★追加: ストリーミングサービスプロバイダーの型定義
+// ストリーミングサービスプロバイダーの型定義
 interface Provider {
   provider_id: number;
   provider_name: string;
@@ -43,7 +43,7 @@ interface Provider {
   display_priority: number;
 }
 
-// ★追加: アプリ内で使用する映画結果の型定義
+// アプリ内で使用する映画結果の型定義
 interface AppMovieResult {
   id: number;
   title: string;
@@ -56,7 +56,7 @@ interface AppMovieResult {
 
 export default function Home() {
   const [movieTitle, setMovieTitle] = useState<string>('');
-  const [results, setResults] = useState<AppMovieResult[]>([]); // ★修正: AppMovieResult[] 型を使用
+  const [results, setResults] = useState<AppMovieResult[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -80,24 +80,26 @@ export default function Home() {
       case 'YouTube':
         return `https://www.youtube.com/results?search_query=${encodeURIComponent(movieTitle)}+full+movie`;
       default:
-        return justWatchMovieLink || '#';
+        return justWatchMovieLink || '#'; // デフォルトはJustWatchのリンク、なければ#
     }
   };
 
-
+  // 映画検索とプロバイダー情報取得のハンドラー
   const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault(); // フォームのデフォルトの送信動作を防止
 
-    setLoading(true);
-    setError(null);
-    setResults([]);
+    setLoading(true); // ローディング状態を開始
+    setError(null); // エラーメッセージをクリア
+    setResults([]); // 検索結果をクリア
 
+    // 映画名が入力されていない場合のチェック
     if (!movieTitle.trim()) {
       setError('映画名を入力してください。');
       setLoading(false);
       return;
     }
 
+    // APIキーが設定されているかのチェック
     if (!TMDB_API_KEY) {
       setError('APIキーが設定されていません。`.env.local`を確認してください。');
       setLoading(false);
@@ -105,15 +107,19 @@ export default function Home() {
     }
 
     try {
+      // 映画検索APIのURLを構築
       const searchUrl = `${TMDB_BASE_URL}/search/movie?query=${encodeURIComponent(movieTitle)}&api_key=${TMDB_API_KEY}&language=ja-JP`;
-      const searchResponse = await fetch(searchUrl);
+      const searchResponse = await fetch(searchUrl); // 映画を検索
 
+      // レスポンスがOKでなかった場合のエラーハンドリング
       if (!searchResponse.ok) {
         throw new Error(`映画検索API呼び出しに失敗しました: ${searchResponse.statusText} (ステータスコード: ${searchResponse.status})`);
       }
-      const searchData: { results: MovieData[] } = await searchResponse.json();
+      const searchData: { results: MovieData[] } = await searchResponse.json(); // 検索結果をJSONとしてパース
 
+      // 検索結果がある場合
       if (searchData.results && searchData.results.length > 0) {
+        // 各映画の視聴プロバイダー情報を並行して取得
         const moviesWithStreamingPromises = searchData.results.map(async (movie: MovieData) => {
           try {
             const providersUrl = `${TMDB_BASE_URL}/movie/${movie.id}/watch/providers?api_key=${TMDB_API_KEY}`;
@@ -124,10 +130,11 @@ export default function Home() {
 
             if (providersResponse.ok) {
               const providersData: { results: { JP?: { link?: string; flatrate?: Provider[]; buy?: Provider[]; rent?: Provider[] } } } = await providersResponse.json();
-              const jpProviders = providersData.results?.JP;
+              const jpProviders = providersData.results?.JP; // 日本のプロバイダー情報を取得
 
-              justWatchLink = jpProviders?.link;
+              justWatchLink = jpProviders?.link; // JustWatchのリンクを取得
 
+              // プロバイダーリストからサービスを追加するヘルパー関数
               const addServices = (providerList: Provider[] | undefined) => {
                 if (providerList) {
                   providerList.forEach((p: Provider) => {
@@ -140,16 +147,19 @@ export default function Home() {
                 }
               };
 
-              addServices(jpProviders?.flatrate);
-              addServices(jpProviders?.buy);
-              addServices(jpProviders?.rent);
+              // 各タイプのプロバイダーを追加
+              addServices(jpProviders?.flatrate); // 定額制
+              addServices(jpProviders?.buy);      // 購入
+              addServices(jpProviders?.rent);     // レンタル
 
+              // 重複するサービスを削除 (名前で一意化)
               services = Array.from(new Map(services.map(item => [item['name'], item])).values());
 
             } else {
               console.warn(`視聴プロバイダー情報の取得に失敗しました (映画ID: ${movie.id}): ${providersResponse.statusText}`);
             }
 
+            // 最終的な映画結果オブジェクトを返す
             return {
               id: movie.id,
               title: movie.title,
@@ -160,13 +170,15 @@ export default function Home() {
               justWatchLink: justWatchLink,
             };
           } catch (providerError: unknown) {
+            // プロバイダー情報取得中のエラーハンドリング
             let errorMessage = '不明なエラー';
             if (providerError instanceof Error) {
               errorMessage = providerError.message;
             } else if (typeof providerError === 'string') {
               errorMessage = providerError;
             }
-            console.error(`視聴プロバイダー情報の取得中にエラーが発生しました (映画ID: ${movie.id}): ${errorMessage}`); // ★修正: errorMessageを使用
+            console.error(`視聴プロバイダー情報の取得中にエラーが発生しました (映画ID: ${movie.id}): ${errorMessage}`);
+            // エラーが発生しても、部分的な結果を返す
             return {
               id: movie.id,
               title: movie.title,
@@ -179,24 +191,25 @@ export default function Home() {
           }
         });
 
-        const finalResults = await Promise.all(moviesWithStreamingPromises);
-        setResults(finalResults);
+        const finalResults = await Promise.all(moviesWithStreamingPromises); // 全てのプロミスが解決するのを待つ
+        setResults(finalResults); // 最終結果をステートにセット
 
       } else {
-        setError('一致する映画が見つかりませんでした。');
+        setError('一致する映画が見つかりませんでした。'); // 映画が見つからなかった場合
       }
 
     } catch (err: unknown) {
+      // 全体的な映画検索エラーのハンドリング
       let errorMessage = '不明なエラー';
       if (err instanceof Error) {
         errorMessage = err.message;
       } else if (typeof err === 'string') {
         errorMessage = err;
       }
-      console.error('映画検索エラー:', errorMessage); // ★修正: errorMessageを使用
+      console.error('映画検索エラー:', errorMessage);
       setError(`映画の検索中にエラーが発生しました: ${errorMessage}`);
     } finally {
-      setLoading(false);
+      setLoading(false); // ローディング状態を終了
     }
   };
 
@@ -228,9 +241,12 @@ export default function Home() {
                 <li key={movie.id} style={styles.resultItem}>
                   <div style={styles.movieContent}>
                     {movie.poster_path && (
-                      <img
+                      // ★修正: imgタグをImageコンポーネントに置き換え
+                      <Image
                         src={`https://image.tmdb.org/t/p/w92${movie.poster_path}`}
                         alt={movie.title}
+                        width={92} // 適切な幅を指定
+                        height={138} // 適切な高さを指定 (w92の場合、アスペクト比1.5を仮定)
                         style={styles.poster}
                       />
                     )}
@@ -257,20 +273,26 @@ export default function Home() {
                                     style={styles.providerLink}
                                   >
                                     {service.logo && (
-                                      <img
+                                      // ★修正: imgタグをImageコンポーネントに置き換え
+                                      <Image
                                         src={`https://image.tmdb.org/t/p/w45${service.logo}`}
                                         alt={service.name}
                                         title={service.name}
+                                        width={30} // 適切な幅を指定
+                                        height={30} // 適切な高さを指定 (w45の場合、正方形を仮定)
                                         style={styles.providerLogo}
                                       />
                                     )}
                                   </a>
                                 ) : (
                                   service.logo && (
-                                    <img
+                                    // ★修正: imgタグをImageコンポーネントに置き換え
+                                    <Image
                                       src={`https://image.tmdb.org/t/p/w45${service.logo}`}
                                       alt={service.name}
                                       title={service.name}
+                                      width={30} // 適切な幅を指定
+                                      height={30} // 適切な高さを指定
                                       style={styles.providerLogo}
                                     />
                                   )
@@ -296,7 +318,7 @@ export default function Home() {
   );
 }
 
-// スタイルの追加と修正
+// スタイルの追加と修正 (変更なし)
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     fontFamily: 'Arial, sans-serif',
@@ -373,7 +395,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   poster: {
     width: '92px',
-    height: 'auto',
+    height: 'auto', // Imageコンポーネントを使う場合、widthとheightは数値で指定し、CSSのheight: 'auto'は不要になることが多い
     borderRadius: '4px',
     marginRight: '15px',
     boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
@@ -420,7 +442,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     textDecoration: 'none',
   },
   providerLogo: {
-    width: '30px',
+    width: '30px', // Imageコンポーネントを使う場合、widthとheightは数値で指定し、CSSのwidth/heightは不要になることが多い
     height: '30px',
     borderRadius: '50%',
     border: '1px solid #ddd',
@@ -436,4 +458,9 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: '#999',
     fontStyle: 'italic',
   },
+  noResults: {
+    textAlign: 'center',
+    color: '#666',
+    marginTop: '20px',
+  }
 };
