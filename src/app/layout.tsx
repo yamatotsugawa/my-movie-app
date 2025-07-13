@@ -1,28 +1,25 @@
 // src/app/layout.tsx
-
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import "./globals.css"; // globals.css のインポートを確認
-
-import { Analytics } from "@vercel/analytics/next"; // Vercel Analytics のインポート
+import "./globals.css";
+import ClientLayout from './ClientLayout';
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "どのオンデマンドで観れる？", // アプリのタイトル
-  description: "映画の視聴サービスを検索できるアプリ", // アプリの説明
+  title: "どのオンデマンドで観れる？",
+  description: "映画の視聴サービスを検索できるアプリ",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="ja">
       <body className={inter.className}>
-        {children}
-        <Analytics /> {/* Vercel Analytics コンポーネント */}
+        <ClientLayout>{children}</ClientLayout>
       </body>
     </html>
   );
