@@ -1,110 +1,82 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { useState, useEffect } from 'react';
-import {
-  collection,
-  addDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  serverTimestamp,
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 
-interface Message {
-  id: string;
-  text: string;
-  createdAt: any;
-}
+type Provider = {
+  provider_id: number;
+  provider_name: string;
+  logo_path: string;
+};
 
-export default function ChatRoom() {
-  const params = useParams();
-  const movieId = typeof params.movieId === 'string' ? params.movieId : '';
+type WatchProviderResponse = {
+  id: number;
+  results: {
+    JP?: {
+      flatrate?: Provider[];
+      rent?: Provider[];
+      buy?: Provider[];
+    };
+  };
+};
 
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [text, setText] = useState('');
+export default function MovieDetailPage() {
+  const { id } = useParams();
+  const movieId = id as string;
+
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [title, setTitle] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!movieId) return;
+    const fetchMovieData = async () => {
+      try {
+        const movieRes = await fetch(
+          `https://api.themoviedb.org/3/movie/${movieId}?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY}&language=ja-JP`
+        );
+        const movieJson = await movieRes.json();
+        const movieData = movieJson as { title: string };
+        setTitle(movieData.title);
 
-    const q = query(
-      collection(db, 'movies', movieId, 'messages'),
-      orderBy('createdAt', 'asc')
-    );
+        const providerRes = await fetch(
+          `https://api.themoviedb.org/3/movie/${movieId}/watch/providers?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY}`
+        );
+        const providerJson = await providerRes.json();
+        const providerData = providerJson as WatchProviderResponse;
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const msgs = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...(doc.data() as any),
-      }));
-      setMessages(msgs);
-    });
+        const jpProviders = providerData.results?.JP?.flatrate || [];
+        setProviders(jpProviders);
+      } catch (err) {
+        console.error('データ取得エラー:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    return () => unsubscribe();
+    fetchMovieData();
   }, [movieId]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!text.trim() || !movieId) return;
-
-    await addDoc(collection(db, 'movies', movieId, 'messages'), {
-      text,
-      createdAt: serverTimestamp(),
-    });
-
-    setText('');
-  };
-
   return (
-    <div style={{
-      padding: '2rem',
-      maxWidth: '800px',
-      margin: '0 auto',
-      backgroundColor: '#ffffff',
-      borderRadius: '8px',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-      fontFamily: 'Arial, sans-serif'
-    }}>
-      <h1 style={{ textAlign: 'center', fontSize: '24px', color: '#333', marginBottom: '1rem' }}>
-        この映画（ID: {movieId}）について語ろう
-      </h1>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', marginBottom: '1rem' }}>
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="メッセージを入力"
-          style={{
-            padding: '10px',
-            fontSize: '16px',
-            flex: 1,
-            marginRight: '10px',
-            borderRadius: '4px',
-            border: '1px solid #ccc',
-          }}
-        />
-        <button
-          type="submit"
-          style={{
-            padding: '10px 20px',
-            fontSize: '16px',
-            backgroundColor: '#0070f3',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-          }}
-        >
-          送信
-        </button>
-      </form>
-      <ul style={{ listStyle: 'none', padding: 0 }}>
-        {messages.map((msg) => (
-          <li key={msg.id} style={{ marginBottom: '10px', borderBottom: '1px solid #eee', paddingBottom: '5px' }}>
-            {msg.text}
-          </li>
-        ))}
-      </ul>
+    <div style={{ padding: 40 }}>
+      <h1>{title || `映画ID: ${movieId}`}</h1>
+      {loading ? (
+        <p>読み込み中...</p>
+      ) : providers.length === 0 ? (
+        <p>現在日本で視聴可能な配信サービスは見つかりませんでした。</p>
+      ) : (
+        <ul style={{ display: 'flex', gap: '1rem', listStyle: 'none', padding: 0 }}>
+          {providers.map((provider) => (
+            <li key={provider.provider_id}>
+              <img
+                src={`https://image.tmdb.org/t/p/w92${provider.logo_path}`}
+                alt={provider.provider_name}
+                title={provider.provider_name}
+                style={{ width: 50, height: 'auto' }}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { db } from '../../../lib/firebase';
+import { db } from '@/lib/firebase';
 import {
   collection,
   addDoc,
@@ -10,22 +10,30 @@ import {
   orderBy,
   onSnapshot,
   Timestamp,
+  DocumentData,
 } from 'firebase/firestore';
 
-// 映画タイトル取得用（TMDB API）
+// 🔹 チャットメッセージの型定義（idを含む）
+type ChatMessage = {
+  id: string;
+  text: string;
+  createdAt: Timestamp;
+};
+
+// 🔹 TMDBから映画タイトルを取得するための設定
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
 const TMDB_API_URL = 'https://api.themoviedb.org/3';
 
-export default function MovieChatPage() {
+export default function ChatRoom() {
   const params = useParams();
   const movieId = params.movieId as string;
 
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [movieTitle, setMovieTitle] = useState('');
 
-  // 🔹 映画タイトルを取得
+  // 🔹 映画タイトル取得
   useEffect(() => {
     if (!movieId) return;
 
@@ -43,7 +51,7 @@ export default function MovieChatPage() {
     fetchTitle();
   }, [movieId]);
 
-  // 🔹 Firestore からチャットメッセージ取得
+  // 🔹 チャットメッセージ取得
   useEffect(() => {
     if (!movieId) return;
 
@@ -53,15 +61,23 @@ export default function MovieChatPage() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((doc) => doc.data());
-      setMessages(data);
-      setLoading(false);
-    });
+  const msgs: ChatMessage[] = snapshot.docs.map((doc) => {
+    const data = doc.data() as DocumentData;
+    return {
+      id: doc.id,
+      text: data.text,
+      createdAt: data.createdAt,
+    };
+  });
+  setMessages(msgs);
+  setLoading(false);
+});
+
 
     return () => unsubscribe();
   }, [movieId]);
 
-  // 🔹 メッセージ送信処理
+  // 🔹 メッセージ送信
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim()) return;
@@ -78,15 +94,15 @@ export default function MovieChatPage() {
     <div style={styles.container}>
       <h1 style={styles.title}>この映画「{movieTitle}」について語ろう</h1>
       <form onSubmit={handleSubmit} style={styles.form}>
-  <textarea
-    value={message}
-    onChange={(e) => setMessage(e.target.value)}
-    placeholder="メッセージを入力（改行もできます）"
-    style={styles.textarea}
-    rows={4}
-  />
-  <button type="submit" style={styles.button}>送信</button>
-</form>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="メッセージを入力（改行もできます）"
+          style={styles.textarea}
+          rows={4}
+        />
+        <button type="submit" style={styles.button}>送信</button>
+      </form>
 
       <div style={styles.chatContainer}>
         {loading ? (
@@ -94,8 +110,8 @@ export default function MovieChatPage() {
         ) : messages.length === 0 ? (
           <p>最初に書き込み者になろう！</p>
         ) : (
-          messages.map((msg, i) => (
-            <div key={i} style={styles.message}>
+          messages.map((msg) => (
+            <div key={msg.id} style={styles.message}>
               <span>{msg.text}</span>
               <span style={styles.timestamp}>
                 {msg.createdAt?.toDate?.().toLocaleString('ja-JP', {
@@ -124,6 +140,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     backgroundColor: '#f9f9f9',
     borderRadius: 10,
     boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+    fontFamily: 'Arial, sans-serif',
   },
   title: {
     fontSize: '24px',
@@ -133,6 +150,15 @@ const styles: { [key: string]: React.CSSProperties } = {
   form: {
     display: 'flex',
     marginBottom: 20,
+  },
+  textarea: {
+    flex: 1,
+    padding: '10px',
+    fontSize: '16px',
+    border: '1px solid #ddd',
+    borderRadius: '5px',
+    marginRight: '10px',
+    resize: 'vertical',
   },
   button: {
     padding: '10px 16px',
@@ -157,21 +183,12 @@ const styles: { [key: string]: React.CSSProperties } = {
     display: 'flex',
     justifyContent: 'space-between',
     fontSize: '14px',
-    whiteSpace: 'pre-wrap', // 改行を表示！
+    whiteSpace: 'pre-wrap',
   },
   timestamp: {
     fontSize: '12px',
     color: '#999',
     marginLeft: 10,
     whiteSpace: 'nowrap',
-  },
-  textarea: {
-    flex: 1,
-    padding: '10px',
-    fontSize: '16px',
-    border: '1px solid #ddd',
-    borderRadius: '5px',
-    marginRight: '10px',
-    resize: 'vertical',
   },
 };

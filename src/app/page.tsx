@@ -117,9 +117,11 @@ export default function Home() {
                   }
                 };
 
+                console.log('JP Providers:', jpProviders);
                 addServices(jpProviders?.flatrate);
                 addServices(jpProviders?.buy);
                 addServices(jpProviders?.rent);
+                console.log('Services collected:', services);
 
                 services = Array.from(new Map(services.map((item) => [item.name, item])).values());
               }
@@ -151,8 +153,12 @@ export default function Home() {
       } else {
         setError('一致する映画が見つかりませんでした。');
       }
-    } catch (err: any) {
-      setError(`検索中にエラーが発生しました: ${err.message}`);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(`検索中にエラーが発生しました: ${err.message}`);
+      } else {
+        setError('予期せぬエラーが発生しました');
+      }
     } finally {
       setLoading(false);
     }
@@ -195,35 +201,43 @@ export default function Home() {
                     />
                   )}
                   <button
-  onClick={() => router.push(`/chat/${movie.id}`)}
-  style={styles.chatButton}
->
-  この映画について語る
-</button>
+                    onClick={() => router.push(`/chat/${movie.id}`)}
+                    style={styles.chatButton}
+                  >
+                    この映画について語る
+                  </button>
                 </div>
                 <div style={styles.movieDetails}>
-                  <h3 style={styles.movieTitle}>{movie.title}（{movie.release_date?.slice(0, 4)}）</h3>
-                  <p style={styles.movieOverview}>{movie.overview?.slice(0, 200)}...</p>
+                  <h3 style={styles.movieTitle}>
+                    {movie.title}（{movie.release_date?.slice(0, 4)}）
+                  </h3>
+                  <p style={styles.movieOverview}>
+                    {movie.overview?.slice(0, 200)}...
+                  </p>
                   <div>
                     <strong>視聴可能サービス：</strong>
-                    <div style={styles.providerLogos}>
-                      {movie.streamingServices?.map((s, i) => (
-                        <a
-                          key={i}
-                          href={s.link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <Image
-                            src={`https://image.tmdb.org/t/p/w45${s.logo}`}
-                            alt={s.name}
-                            width={30}
-                            height={30}
-                            style={styles.providerLogo}
-                          />
-                        </a>
-                      ))}
-                    </div>
+                    {movie.streamingServices?.length ? (
+                      <div style={styles.providerLogos}>
+                        {movie.streamingServices.map((s, i) => (
+                          <a
+                            key={i}
+                            href={s.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <Image
+                              src={`https://image.tmdb.org/t/p/w45${s.logo}`}
+                              alt={s.name}
+                              width={30}
+                              height={30}
+                              style={styles.providerLogo}
+                            />
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={{ color: '#999', fontSize: '14px' }}>現在、視聴可能なサービス情報は見つかりませんでした。</p>
+                    )}
                   </div>
                 </div>
               </div>
