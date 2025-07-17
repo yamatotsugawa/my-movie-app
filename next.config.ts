@@ -1,9 +1,8 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   images: {
-    domains: ['image.tmdb.org'], // ← TMDBの画像を許可
+    domains: ['image.tmdb.org'],
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;
