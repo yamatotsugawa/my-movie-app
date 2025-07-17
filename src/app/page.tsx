@@ -391,3 +391,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: '14px',
   },
 };
+<main className="flex flex-col-reverse md:flex-row gap-6 p-4 max-w-7xl mx-auto w-full">
+  <div className="flex-1 bg-white rounded-lg p-6 shadow">{/* メイン検索エリア */}</div>
+  <div className="md:w-80 w-full bg-white rounded-lg p-4 shadow">{/* チャット履歴 */}</div>
+</main>
