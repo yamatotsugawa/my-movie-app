@@ -167,231 +167,99 @@ export default function Home() {
   };
 
   return (
-    <div style={styles.pageLayout}>
-      <div style={styles.mainColumn}>
-        <div style={styles.container}>
-          <h1 style={styles.title}>どのオンデマンドで観れる？</h1>
-          <form onSubmit={handleSearch} style={styles.form}>
-            <input
-              type="text"
-              value={movieTitle}
-              onChange={(e) => setMovieTitle(e.target.value)}
-              placeholder="映画名を入力してください"
-              style={styles.input}
-              disabled={loading}
-            />
-            <button type="submit" style={styles.button} disabled={loading}>
-              {loading ? '検索中...' : '検索'}
-            </button>
-          </form>
-          <p style={styles.noticeText}>
-            結果が出てこない場合はスペースなどを入れるか英語名で検索してみてください。
-          </p>
-          {error && <p style={styles.errorText}>{error}</p>}
-          <div style={styles.resultsContainer}>
-            {results.length > 0 ? (
-              <>
-                <h2 style={styles.resultsTitle}>検索結果</h2>
-                {results.map((movie) => (
-                  <div key={movie.id} style={styles.card}>
-                    <div style={styles.posterSection}>
-                      {movie.poster_path && (
-                        <Image
-                          src={`https://image.tmdb.org/t/p/w200${movie.poster_path}`}
-                          alt={movie.title}
-                          width={130}
-                          height={200}
-                          style={{ borderRadius: '8px' }}
-                        />
+    <main className="flex flex-col-reverse md:flex-row gap-6 p-4 max-w-7xl mx-auto w-full">
+      <div className="flex-1 bg-white rounded-lg p-6 shadow">
+        <h1 className="text-2xl font-bold mb-4 text-center">どのオンデマンドで観れる？</h1>
+        <form onSubmit={handleSearch} className="flex flex-col sm:flex-row items-center gap-2 mb-4">
+          <input
+            type="text"
+            value={movieTitle}
+            onChange={(e) => setMovieTitle(e.target.value)}
+            placeholder="映画名を入力してください"
+            className="border border-gray-300 rounded px-4 py-2 w-full sm:w-80"
+            disabled={loading}
+          />
+          <button
+            type="submit"
+            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
+            disabled={loading}
+          >
+            {loading ? '検索中...' : '検索'}
+          </button>
+        </form>
+        <p className="text-center text-sm text-gray-600">
+          結果が出てこない場合はスペースなどを入れるか英語名で検索してみてください。
+        </p>
+        {error && <p className="text-red-500 mt-2 text-center">{error}</p>}
+        <div className="mt-6">
+          {results.length > 0 ? (
+            <>
+              <h2 className="text-xl font-semibold mb-4 text-center">検索結果</h2>
+              {results.map((movie) => (
+                <div key={movie.id} className="bg-white rounded-lg p-4 shadow mb-6 flex gap-4">
+                  <div className="flex-shrink-0">
+                    {movie.poster_path && (
+                      <Image
+                        src={`https://image.tmdb.org/t/p/w200${movie.poster_path}`}
+                        alt={movie.title}
+                        width={130}
+                        height={200}
+                        className="rounded"
+                      />
+                    )}
+                    <button
+                      onClick={() => router.push(`/chat/${movie.id}`)}
+                      className="mt-2 bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700"
+                    >
+                      この映画について語る
+                    </button>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold">
+                      {movie.title}（{movie.release_date?.slice(0, 4)}）
+                    </h3>
+                    <p className="text-sm text-gray-700 mt-2">
+                      {movie.overview?.slice(0, 200)}...
+                    </p>
+                    <div className="mt-2">
+                      <strong>視聴可能サービス：</strong>
+                      {movie.streamingServices?.length ? (
+                        <div className="flex gap-2 flex-wrap mt-2">
+                          {movie.streamingServices.map((s, i) => (
+                            <a
+                              key={i}
+                              href={s.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Image
+                                src={`https://image.tmdb.org/t/p/w45${s.logo}`}
+                                alt={s.name}
+                                width={30}
+                                height={30}
+                                className="rounded border"
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500">現在、視聴可能なサービス情報は見つかりませんでした。</p>
                       )}
-                      <button
-                        onClick={() => router.push(`/chat/${movie.id}`)}
-                        style={styles.chatButton}
-                      >
-                        この映画について語る
-                      </button>
-                    </div>
-                    <div style={styles.movieDetails}>
-                      <h3 style={styles.movieTitle}>
-                        {movie.title}（{movie.release_date?.slice(0, 4)}）
-                      </h3>
-                      <p style={styles.movieOverview}>
-                        {movie.overview?.slice(0, 200)}...
-                      </p>
-                      <div>
-                        <strong>視聴可能サービス：</strong>
-                        {movie.streamingServices?.length ? (
-                          <div style={styles.providerLogos}>
-                            {movie.streamingServices.map((s, i) => (
-                              <a
-                                key={i}
-                                href={s.link}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                <Image
-                                  src={`https://image.tmdb.org/t/p/w45${s.logo}`}
-                                  alt={s.name}
-                                  width={30}
-                                  height={30}
-                                  style={styles.providerLogo}
-                                />
-                              </a>
-                            ))}
-                          </div>
-                        ) : (
-                          <p style={{ color: '#999', fontSize: '14px' }}>
-                            現在、視聴可能なサービス情報は見つかりませんでした。
-                          </p>
-                        )}
-                      </div>
                     </div>
                   </div>
-                ))}
-              </>
-            ) : (
-              !loading && !error && (
-                <p style={styles.noResults}>映画名を入力して検索してください。</p>
-              )
-            )}
-          </div>
+                </div>
+              ))}
+            </>
+          ) : (
+            !loading && !error && (
+              <p className="text-center text-gray-500">映画名を入力して検索してください。</p>
+            )
+          )}
         </div>
       </div>
-      <aside style={styles.sidebarColumn}>
-        <RecentChatsSidebar
-          items={recentChats}
-          loading={recentLoading}
-          error={recentError}
-        />
-      </aside>
-    </div>
+      <div className="md:w-80 w-full bg-white rounded-lg p-4 shadow">
+        <RecentChatsSidebar items={recentChats} loading={recentLoading} error={recentError} />
+      </div>
+    </main>
   );
 }
-
-const styles: { [key: string]: React.CSSProperties } = {
-  pageLayout: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 300px',
-    gap: '24px',
-    maxWidth: '1200px',
-    margin: '40px auto',
-    padding: '0 16px',
-    alignItems: 'start',
-  },
-  mainColumn: {
-    width: '100%',
-  },
-  sidebarColumn: {
-    width: '100%',
-    position: 'sticky',
-    top: '32px',
-  },
-  container: {
-    fontFamily: 'Arial, sans-serif',
-    width: '100%',
-    padding: '20px',
-    backgroundColor: '#ffffff',
-    borderRadius: '12px',
-  },
-  title: {
-    textAlign: 'center',
-    fontSize: '28px',
-    color: '#222',
-    marginBottom: '20px',
-  },
-  form: {
-    display: 'flex',
-    justifyContent: 'center',
-    gap: '10px',
-    marginBottom: '10px',
-  },
-  noticeText: {
-    textAlign: 'center',
-    color: '#666',
-    fontSize: '14px',
-    marginBottom: '20px',
-  },
-  input: {
-    padding: '12px',
-    fontSize: '16px',
-    width: '60%',
-    borderRadius: '6px',
-    border: '1px solid #ccc',
-  },
-  button: {
-    padding: '12px 20px',
-    fontSize: '16px',
-    backgroundColor: '#0070f3',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer',
-  },
-  errorText: {
-    color: 'red',
-    textAlign: 'center',
-    margin: '10px 0',
-  },
-  resultsContainer: {
-    marginTop: '30px',
-  },
-  resultsTitle: {
-    textAlign: 'center',
-    fontSize: '22px',
-    marginBottom: '20px',
-  },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: '10px',
-    padding: '20px',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-    marginBottom: '24px',
-    display: 'flex',
-    gap: '20px',
-  },
-  posterSection: {
-    flex: '0 0 auto',
-    textAlign: 'center',
-  },
-  chatButton: {
-    marginTop: '12px',
-    backgroundColor: '#0070f3',
-    color: '#fff',
-    padding: '8px 12px',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer',
-  },
-  movieDetails: {
-    flex: '1 1 auto',
-  },
-  movieTitle: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    marginBottom: '8px',
-  },
-  movieOverview: {
-    fontSize: '14px',
-    color: '#555',
-    lineHeight: '1.6',
-  },
-  providerLogos: {
-    marginTop: '10px',
-    display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap',
-  },
-  providerLogo: {
-    borderRadius: '4px',
-    border: '1px solid #ddd',
-  },
-  noResults: {
-    textAlign: 'center',
-    color: '#999',
-    fontSize: '14px',
-  },
-};
-<main className="flex flex-col-reverse md:flex-row gap-6 p-4 max-w-7xl mx-auto w-full">
-  <div className="flex-1 bg-white rounded-lg p-6 shadow">{/* メイン検索エリア */}</div>
-  <div className="md:w-80 w-full bg-white rounded-lg p-4 shadow">{/* チャット履歴 */}</div>
-</main>
