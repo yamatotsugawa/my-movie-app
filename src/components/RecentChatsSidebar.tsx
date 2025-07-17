@@ -1,132 +1,92 @@
 'use client';
 
-import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { ChatSummary } from '@/hooks/useRecentChats';
-import { formatDistanceToNow } from '@/utils/time'; // 下に作る簡易関数
+
+function formatDateRelative(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+
+  if (diffMin < 1) return 'たった今';
+  if (diffMin < 60) return `${diffMin}分前`;
+  if (diffHour < 24) return `${diffHour}時間前`;
+  return `${diffDay}日前`;
+}
 
 interface Props {
   items: ChatSummary[];
-  loading?: boolean;
-  error?: string | null;
+  loading: boolean;
+  error: string | null;
 }
 
 export function RecentChatsSidebar({ items, loading, error }: Props) {
-  const router = useRouter();
-
-  if (loading) {
-    return <div style={styles.box}>読み込み中...</div>;
-  }
-  if (error) {
-    return <div style={styles.box}>読み込みエラー: {error}</div>;
-  }
-  if (!items.length) {
-    return <div style={styles.box}>最近更新されたチャットはありません。</div>;
-  }
-
   return (
-    <div style={styles.box}>
-      <h3 style={styles.heading}>最近更新されたチャット</h3>
-      <ul style={styles.list}>
-        {items.map((it) => (
-          <li
-            key={it.movieId}
-            style={styles.item}
-            onClick={() => router.push(`/chat/${it.movieId}`)}
-          >
-            <div style={styles.thumbWrap}>
-              {it.poster_path ? (
-                <Image
-                  src={`https://image.tmdb.org/t/p/w92${it.poster_path}`}
-                  alt={it.title}
-                  width={46}
-                  height={69}
-                  style={{ borderRadius: 4 }}
-                />
-              ) : (
-                <div style={styles.thumbPlaceholder}>No Image</div>
+    <div
+      style={{
+        backgroundColor: '#ffffff',
+        padding: '16px',
+        borderRadius: '12px',
+        fontFamily: 'Arial, sans-serif',
+        boxShadow: '0 0 6px rgba(0, 0, 0, 0.05)',
+      }}
+    >
+      <h2 style={{ fontSize: '18px', marginBottom: '12px' }}>最近更新されたチャット</h2>
+      {loading && <p>読み込み中...</p>}
+      {error && <p style={{ color: 'red' }}>エラー: {error}</p>}
+      {!loading && !error && items.length === 0 && <p>まだチャットがありません。</p>}
+      {!loading && !error && items.length > 0 && (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+          {items.map((chat, index) => (
+            <li
+              key={chat.movieId}
+              style={{
+                marginBottom: '12px',
+                paddingBottom: '12px',
+                borderBottom: index < items.length - 1 ? '1px solid #ddd' : 'none',
+              }}
+            >
+              <Link
+                href={`/?q=${encodeURIComponent(chat.title)}`}
+                prefetch={false}
+                style={{
+                  fontWeight: 'bold',
+                  fontSize: '15px',
+                  color: '#111',
+                  textDecoration: 'none',
+                  display: 'block',
+                }}
+              >
+                {chat.title}
+              </Link>
+
+              {chat.lastMessageText && (
+                <Link
+                  href={`/chat/${chat.movieId}`}
+                  prefetch={false}
+                  style={{
+                    fontSize: '14px',
+                    color: '#666',
+                    textDecoration: 'none',
+                    display: 'block',
+                    marginTop: '4px',
+                  }}
+                >
+                  {chat.lastMessageText}
+                </Link>
               )}
-            </div>
-            <div style={styles.meta}>
-              <div style={styles.title}>{it.title}</div>
-              {it.lastMessageText && (
-                <div style={styles.snippet}>{it.lastMessageText}</div>
-              )}
-              {it.lastMessageAt && (
-                <div style={styles.time}>
-                  {formatDistanceToNow(it.lastMessageAt)}前
+
+              {chat.lastMessageAt && (
+                <div style={{ fontSize: '12px', color: '#aaa', marginTop: '4px' }}>
+                  {formatDateRelative(chat.lastMessageAt)}
                 </div>
               )}
-            </div>
-          </li>
-        ))}
-      </ul>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
-
-const styles: { [k: string]: React.CSSProperties } = {
-  box: {
-    background: '#fafafa',
-    border: '1px solid #e3e3e3',
-    borderRadius: 8,
-    padding: 16,
-    fontSize: 14,
-  },
-  heading: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 12,
-  },
-  list: {
-    listStyle: 'none',
-    margin: 0,
-    padding: 0,
-  },
-  item: {
-    display: 'flex',
-    gap: 8,
-    padding: '8px 0',
-    borderBottom: '1px solid #eee',
-    cursor: 'pointer',
-  },
-  thumbWrap: {
-    flex: '0 0 auto',
-  },
-  thumbPlaceholder: {
-    width: 46,
-    height: 69,
-    background: '#ddd',
-    fontSize: 10,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 4,
-    color: '#666',
-  },
-  meta: {
-    flex: '1 1 auto',
-    overflow: 'hidden',
-  },
-  title: {
-    fontWeight: 600,
-    fontSize: 14,
-    lineHeight: 1.2,
-    marginBottom: 2,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  snippet: {
-    fontSize: 12,
-    color: '#666',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    marginBottom: 2,
-  },
-  time: {
-    fontSize: 11,
-    color: '#999',
-  },
-};

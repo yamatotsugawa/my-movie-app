@@ -8,7 +8,6 @@ import {
   orderBy,
   limit,
   onSnapshot,
-  DocumentData,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -34,7 +33,7 @@ export function useRecentChats(topN: number = 10, realtime = true) {
         q,
         (snap) => {
           const arr: ChatSummary[] = snap.docs.map((d) => {
-            const data = d.data() as DocumentData;
+            const data = d.data();
             return {
               movieId: Number(data.movieId ?? d.id),
               title: data.title ?? '(無題)',
@@ -58,7 +57,7 @@ export function useRecentChats(topN: number = 10, realtime = true) {
         try {
           const snap = await getDocs(q);
           const arr: ChatSummary[] = snap.docs.map((d) => {
-            const data = d.data() as DocumentData;
+            const data = d.data();
             return {
               movieId: Number(data.movieId ?? d.id),
               title: data.title ?? '(無題)',
@@ -68,12 +67,9 @@ export function useRecentChats(topN: number = 10, realtime = true) {
             };
           });
           setItems(arr);
-        } catch (e: unknown) {
-          if (e instanceof Error) {
-            setError(e.message);
-          } else {
-            setError('不明なエラーが発生しました');
-          }
+        } catch (e) {
+          const err = e as Error;
+          setError(err.message);
         } finally {
           setLoading(false);
         }
