@@ -1,30 +1,17 @@
+// src/app/ClientLayout.tsx
 'use client';
 
-import { Analytics as VercelAnalytics } from '@vercel/analytics/react';
-import Script from 'next/script';
+import React from 'react';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
-      {/* ✅ Google Analytics */}
-      <Script
-        strategy="afterInteractive"
-        src="https://www.googletagmanager.com/gtag/js?id=G-4RE39HMZPK"
-      />
-      <Script
-        id="google-analytics"
-        strategy="afterInteractive"
-        dangerouslySetInnerHTML={{
-          __html: `
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('js', new Date());
-            gtag('config', 'G-4RE39HMZPK');
-          `,
-        }}
-      />
-      {children}
-      <VercelAnalytics />
-    </>
+    <div className="min-h-screen bg-gray-100">
+      <main className="flex flex-col md:flex-row gap-6 p-4 max-w-7xl mx-auto">
+        {children}
+      </main>
+      <footer className="text-center text-gray-500 text-sm py-4 mt-8">
+        &copy; {new Date().getFullYear()} y-movie-app
+      </footer>
+    </div>
   );
 }
