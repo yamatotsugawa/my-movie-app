@@ -12,15 +12,15 @@ import {
   Timestamp,
   DocumentData,
 } from 'firebase/firestore';
+import { updateChatSummary } from '@/lib/updateChatSummary';
 
-// 🔹 チャットメッセージの型定義（idを含む）
+// 🔹 チャットメッセージの型定義
 type ChatMessage = {
   id: string;
   text: string;
   createdAt: Timestamp;
 };
 
-// 🔹 TMDBから映画タイトルを取得するための設定
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
 const TMDB_API_URL = 'https://api.themoviedb.org/3';
 
@@ -32,16 +32,20 @@ export default function ChatRoom() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [movieTitle, setMovieTitle] = useState('');
+  const [moviePosterPath, setMoviePosterPath] = useState<string | null>(null);
 
-  // 🔹 映画タイトル取得
+  // 🔹 映画タイトルとポスターを取得
   useEffect(() => {
     if (!movieId) return;
 
     const fetchTitle = async () => {
       try {
-        const res = await fetch(`${TMDB_API_URL}/movie/${movieId}?api_key=${TMDB_API_KEY}&language=ja-JP`);
+        const res = await fetch(
+          `${TMDB_API_URL}/movie/${movieId}?api_key=${TMDB_API_KEY}&language=ja-JP`
+        );
         const data = await res.json();
         setMovieTitle(data.title || `ID: ${movieId}`);
+        setMoviePosterPath(data.poster_path || null);
       } catch (err) {
         console.error('映画タイトル取得エラー:', err);
         setMovieTitle(`ID: ${movieId}`);
@@ -61,18 +65,17 @@ export default function ChatRoom() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-  const msgs: ChatMessage[] = snapshot.docs.map((doc) => {
-    const data = doc.data() as DocumentData;
-    return {
-      id: doc.id,
-      text: data.text,
-      createdAt: data.createdAt,
-    };
-  });
-  setMessages(msgs);
-  setLoading(false);
-});
-
+      const msgs: ChatMessage[] = snapshot.docs.map((doc) => {
+        const data = doc.data() as DocumentData;
+        return {
+          id: doc.id,
+          text: data.text,
+          createdAt: data.createdAt,
+        };
+      });
+      setMessages(msgs);
+      setLoading(false);
+    });
 
     return () => unsubscribe();
   }, [movieId]);
@@ -85,6 +88,13 @@ export default function ChatRoom() {
     await addDoc(collection(db, `movies/${movieId}/messages`), {
       text: message,
       createdAt: Timestamp.now(),
+    });
+
+    await updateChatSummary({
+      movieId: Number(movieId),
+      title: movieTitle,
+      poster_path: moviePosterPath,
+      messageText: message,
     });
 
     setMessage('');
@@ -131,7 +141,6 @@ export default function ChatRoom() {
   );
 }
 
-// 🔹 スタイル
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     maxWidth: 600,

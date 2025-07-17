@@ -4,6 +4,8 @@ import { useState } from 'react';
 import React from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import { useRecentChats } from '@/hooks/useRecentChats';
+import { RecentChatsSidebar } from '@/components/RecentChatsSidebar';
 
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
@@ -39,6 +41,8 @@ export default function Home() {
   const [results, setResults] = useState<AppMovieResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { items: recentChats, loading: recentLoading, error: recentError } = useRecentChats(10, true);
 
   const getServiceSpecificLink = (providerName: string, movieTitle: string, justWatchMovieLink?: string): string => {
     switch (providerName) {
@@ -117,11 +121,9 @@ export default function Home() {
                   }
                 };
 
-                console.log('JP Providers:', jpProviders);
                 addServices(jpProviders?.flatrate);
                 addServices(jpProviders?.buy);
                 addServices(jpProviders?.rent);
-                console.log('Services collected:', services);
 
                 services = Array.from(new Map(services.map((item) => [item.name, item])).values());
               }
@@ -165,97 +167,128 @@ export default function Home() {
   };
 
   return (
-    <div style={styles.container}>
-      <h1 style={styles.title}>どのオンデマンドで観れる？</h1>
-      <form onSubmit={handleSearch} style={styles.form}>
-        <input
-          type="text"
-          value={movieTitle}
-          onChange={(e) => setMovieTitle(e.target.value)}
-          placeholder="映画名を入力してください"
-          style={styles.input}
-          disabled={loading}
-        />
-        <button type="submit" style={styles.button} disabled={loading}>
-          {loading ? '検索中...' : '検索'}
-        </button>
-      </form>
-      <p style={styles.noticeText}>
-        結果が出てこない場合はスペースなどを入れるか英語名で検索してみてください。
-      </p>
-      {error && <p style={styles.errorText}>{error}</p>}
-      <div style={styles.resultsContainer}>
-        {results.length > 0 ? (
-          <>
-            <h2 style={styles.resultsTitle}>検索結果</h2>
-            {results.map((movie) => (
-              <div key={movie.id} style={styles.card}>
-                <div style={styles.posterSection}>
-                  {movie.poster_path && (
-                    <Image
-                      src={`https://image.tmdb.org/t/p/w200${movie.poster_path}`}
-                      alt={movie.title}
-                      width={130}
-                      height={200}
-                      style={{ borderRadius: '8px' }}
-                    />
-                  )}
-                  <button
-                    onClick={() => router.push(`/chat/${movie.id}`)}
-                    style={styles.chatButton}
-                  >
-                    この映画について語る
-                  </button>
-                </div>
-                <div style={styles.movieDetails}>
-                  <h3 style={styles.movieTitle}>
-                    {movie.title}（{movie.release_date?.slice(0, 4)}）
-                  </h3>
-                  <p style={styles.movieOverview}>
-                    {movie.overview?.slice(0, 200)}...
-                  </p>
-                  <div>
-                    <strong>視聴可能サービス：</strong>
-                    {movie.streamingServices?.length ? (
-                      <div style={styles.providerLogos}>
-                        {movie.streamingServices.map((s, i) => (
-                          <a
-                            key={i}
-                            href={s.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <Image
-                              src={`https://image.tmdb.org/t/p/w45${s.logo}`}
-                              alt={s.name}
-                              width={30}
-                              height={30}
-                              style={styles.providerLogo}
-                            />
-                          </a>
-                        ))}
+    <div style={styles.pageLayout}>
+      <div style={styles.mainColumn}>
+        <div style={styles.container}>
+          <h1 style={styles.title}>どのオンデマンドで観れる？</h1>
+          <form onSubmit={handleSearch} style={styles.form}>
+            <input
+              type="text"
+              value={movieTitle}
+              onChange={(e) => setMovieTitle(e.target.value)}
+              placeholder="映画名を入力してください"
+              style={styles.input}
+              disabled={loading}
+            />
+            <button type="submit" style={styles.button} disabled={loading}>
+              {loading ? '検索中...' : '検索'}
+            </button>
+          </form>
+          <p style={styles.noticeText}>
+            結果が出てこない場合はスペースなどを入れるか英語名で検索してみてください。
+          </p>
+          {error && <p style={styles.errorText}>{error}</p>}
+          <div style={styles.resultsContainer}>
+            {results.length > 0 ? (
+              <>
+                <h2 style={styles.resultsTitle}>検索結果</h2>
+                {results.map((movie) => (
+                  <div key={movie.id} style={styles.card}>
+                    <div style={styles.posterSection}>
+                      {movie.poster_path && (
+                        <Image
+                          src={`https://image.tmdb.org/t/p/w200${movie.poster_path}`}
+                          alt={movie.title}
+                          width={130}
+                          height={200}
+                          style={{ borderRadius: '8px' }}
+                        />
+                      )}
+                      <button
+                        onClick={() => router.push(`/chat/${movie.id}`)}
+                        style={styles.chatButton}
+                      >
+                        この映画について語る
+                      </button>
+                    </div>
+                    <div style={styles.movieDetails}>
+                      <h3 style={styles.movieTitle}>
+                        {movie.title}（{movie.release_date?.slice(0, 4)}）
+                      </h3>
+                      <p style={styles.movieOverview}>
+                        {movie.overview?.slice(0, 200)}...
+                      </p>
+                      <div>
+                        <strong>視聴可能サービス：</strong>
+                        {movie.streamingServices?.length ? (
+                          <div style={styles.providerLogos}>
+                            {movie.streamingServices.map((s, i) => (
+                              <a
+                                key={i}
+                                href={s.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Image
+                                  src={`https://image.tmdb.org/t/p/w45${s.logo}`}
+                                  alt={s.name}
+                                  width={30}
+                                  height={30}
+                                  style={styles.providerLogo}
+                                />
+                              </a>
+                            ))}
+                          </div>
+                        ) : (
+                          <p style={{ color: '#999', fontSize: '14px' }}>
+                            現在、視聴可能なサービス情報は見つかりませんでした。
+                          </p>
+                        )}
                       </div>
-                    ) : (
-                      <p style={{ color: '#999', fontSize: '14px' }}>現在、視聴可能なサービス情報は見つかりませんでした。</p>
-                    )}
+                    </div>
                   </div>
-                </div>
-              </div>
-            ))}
-          </>
-        ) : (
-          !loading && !error && <p style={styles.noResults}>映画名を入力して検索してください。</p>
-        )}
+                ))}
+              </>
+            ) : (
+              !loading && !error && (
+                <p style={styles.noResults}>映画名を入力して検索してください。</p>
+              )
+            )}
+          </div>
+        </div>
       </div>
+      <aside style={styles.sidebarColumn}>
+        <RecentChatsSidebar
+          items={recentChats}
+          loading={recentLoading}
+          error={recentError}
+        />
+      </aside>
     </div>
   );
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
+  pageLayout: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 300px',
+    gap: '24px',
+    maxWidth: '1200px',
+    margin: '40px auto',
+    padding: '0 16px',
+    alignItems: 'start',
+  },
+  mainColumn: {
+    width: '100%',
+  },
+  sidebarColumn: {
+    width: '100%',
+    position: 'sticky',
+    top: '32px',
+  },
   container: {
     fontFamily: 'Arial, sans-serif',
-    maxWidth: '900px',
-    margin: '40px auto',
+    width: '100%',
     padding: '20px',
     backgroundColor: '#ffffff',
     borderRadius: '12px',
