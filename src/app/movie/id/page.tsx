@@ -70,9 +70,10 @@ export default function MovieDetailPage() {
               <img
                 src={`https://image.tmdb.org/t/p/w92${provider.logo_path}`}
                 alt={provider.provider_name}
-                title={provider.provider_name}
-                style={{ width: 50, height: 'auto' }}
+                width={60}
+                height={60}
               />
+              <p>{provider.provider_name}</p>
             </li>
           ))}
         </ul>
