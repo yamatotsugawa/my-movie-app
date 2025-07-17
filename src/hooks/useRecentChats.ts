@@ -8,6 +8,7 @@ import {
   orderBy,
   limit,
   onSnapshot,
+  DocumentData,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -15,7 +16,7 @@ export interface ChatSummary {
   movieId: number;
   title: string;
   poster_path?: string | null;
-  lastMessageAt?: Date | null; // Firestore → Date
+  lastMessageAt?: Date | null;
   lastMessageText?: string | null;
 }
 
@@ -33,7 +34,7 @@ export function useRecentChats(topN: number = 10, realtime = true) {
         q,
         (snap) => {
           const arr: ChatSummary[] = snap.docs.map((d) => {
-            const data = d.data() as any;
+            const data = d.data() as DocumentData;
             return {
               movieId: Number(data.movieId ?? d.id),
               title: data.title ?? '(無題)',
@@ -57,7 +58,7 @@ export function useRecentChats(topN: number = 10, realtime = true) {
         try {
           const snap = await getDocs(q);
           const arr: ChatSummary[] = snap.docs.map((d) => {
-            const data = d.data() as any;
+            const data = d.data() as DocumentData;
             return {
               movieId: Number(data.movieId ?? d.id),
               title: data.title ?? '(無題)',
@@ -67,8 +68,12 @@ export function useRecentChats(topN: number = 10, realtime = true) {
             };
           });
           setItems(arr);
-        } catch (e: any) {
-          setError(e.message);
+        } catch (e: unknown) {
+          if (e instanceof Error) {
+            setError(e.message);
+          } else {
+            setError('不明なエラーが発生しました');
+          }
         } finally {
           setLoading(false);
         }
